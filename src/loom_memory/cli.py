@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Annotated
@@ -32,12 +33,17 @@ def _root(
 ) -> None:
     global _fake, _data_dir
     _fake, _data_dir = fake, data_dir
+    os.environ.setdefault("TQDM_DISABLE", "1")  # barres de progression de FlagEmbedding
+    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+
+
+def _settings() -> Settings:
+    return Settings(data_dir=_data_dir) if _data_dir else Settings()
 
 
 def _run[T](fn: Callable[[MemoryService], Awaitable[T]], *, check_model: bool = True) -> T:
     async def go() -> T:
-        settings = Settings(data_dir=_data_dir) if _data_dir else Settings()
-        svc = build_service(settings, fake=True if _fake else None)
+        svc = build_service(_settings(), fake=True if _fake else None)
         try:
             await svc.start(check_model=check_model)
             return await fn(svc)
@@ -144,7 +150,7 @@ def delete(doc_id: str) -> None:
 @app.command()
 def export(path: Annotated[Path | None, typer.Argument()] = None) -> None:
     """Exporte tous les documents en JSONL (sauvegarde de référence)."""
-    target = path or Settings().export_path
+    target = path or _settings().export_path
     n = _run(lambda s: s.export(target))
     typer.echo(f"{n} document(s) exporté(s) vers {target}")
 
@@ -152,9 +158,64 @@ def export(path: Annotated[Path | None, typer.Argument()] = None) -> None:
 @app.command("import")
 def import_(path: Annotated[Path | None, typer.Argument()] = None) -> None:
     """Réimporte un export JSONL (les doc_id existants sont ignorés)."""
-    source = path or Settings().export_path
+    source = path or _settings().export_path
     imported, skipped = _run(lambda s: s.import_(source))
     typer.echo(f"{imported} importé(s), {skipped} ignoré(s)")
+
+
+@app.command("eval")
+def eval_(
+    path: Annotated[
+        Path | None, typer.Argument(help="Jeu doré JSONL ; défaut data/golden.jsonl")
+    ] = None,
+    k: Annotated[int, typer.Option("--k", min=1, max=10)] = 10,
+    as_json: Annotated[bool, typer.Option("--json", help="Rapport complet en JSON.")] = False,
+) -> None:
+    """Évalue le retrieval sur le jeu doré : recall@1, recall@5, MRR, seuil suggéré."""
+    from loom_memory.evals import load_golden, run_eval
+
+    golden = path or _settings().golden_path
+    cases = load_golden(golden)
+    if not cases:
+        typer.secho(f"aucun cas dans {golden} — ajoute-en avec `loom-memory eval-add`", err=True)
+        raise typer.Exit(1)
+    report = _run(lambda s: run_eval(s, cases, k))
+    if as_json:
+        typer.echo(report.model_dump_json(indent=2))
+        return
+    for r in report.results:
+        mark = "ok " if r.rank == 1 else ("~  " if r.rank else "KO ")
+        rank = f"#{r.rank}" if r.rank else "absent"
+        score = f"{r.expected_score:.3f}" if r.expected_score is not None else "  -  "
+        typer.echo(f"{mark} {rank:>7}  {score}  {r.query}")
+    typer.echo(
+        f"\n{report.cases} cas — recall@1 {report.recall_at_1:.2f}  "
+        f"recall@5 {report.recall_at_5:.2f}  MRR {report.mrr:.2f}"
+    )
+    if report.suggested_min_score is not None:
+        noise = report.noise_removed_at_suggested
+        typer.echo(
+            f"min_score suggéré : {report.suggested_min_score} "
+            f"(aucun cas perdu ; {noise:.0%} du bruit filtré)"
+            if noise is not None
+            else f"min_score suggéré : {report.suggested_min_score}"
+        )
+
+
+@app.command("eval-add")
+def eval_add(
+    query: str,
+    doc_id: str,
+    project: Annotated[str | None, typer.Option("--project", "-p")] = None,
+    path: Annotated[Path | None, typer.Option("--path")] = None,
+) -> None:
+    """Ajoute un cas au jeu doré (le titre est relu depuis la base pour lisibilité)."""
+    from loom_memory.evals import GoldenCase, append_golden
+
+    doc = _run(lambda s: s.get(doc_id))
+    case = GoldenCase(query=query, doc_id=doc.doc_id, title=doc.title, project=project)
+    append_golden(path or _settings().golden_path, case)
+    typer.echo(f"ajouté : « {query} » → {doc.title}")
 
 
 @app.command()

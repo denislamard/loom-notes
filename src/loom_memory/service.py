@@ -52,9 +52,16 @@ class MemoryService:
     # ---------- lecture ----------
 
     async def search(
-        self, query: str, project: str | None = None, tags: Sequence[str] | None = None, k: int = 5
+        self,
+        query: str,
+        project: str | None = None,
+        tags: Sequence[str] | None = None,
+        k: int = 5,
+        min_score: float | None = None,
     ) -> list[Hit]:
-        return await self._retriever.search(query, _clean_project(project), _clean_tags(tags), k)
+        return await self._retriever.search(
+            query, _clean_project(project), _clean_tags(tags), k, min_score=min_score
+        )
 
     async def get(self, doc_id: str) -> Document:
         doc = await self._store.get_document(doc_id)

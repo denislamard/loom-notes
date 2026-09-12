@@ -205,6 +205,7 @@ def main() -> None:
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
     os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    os.environ.setdefault("TQDM_DISABLE", "1")  # barres « Compute Scores » de FlagEmbedding
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     create_server().run(show_banner=False)
 

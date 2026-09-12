@@ -37,12 +37,12 @@ class Settings(BaseSettings):
     chunk_min_chars: int = 200
 
     # Retrieval
-    prefetch_limit: int = 20
-    rerank_candidates: int = 30
+    prefetch_limit: int = 15
+    rerank_candidates: int = 20  # le reranker est le poste de coût dominant sur CPU
     max_chunks_per_doc: int = 2
     snippet_chars: int = 300  # longueur de l'extrait quand le chunk est trop long
     full_chunk_chars: int = 1000  # en dessous, search renvoie le chunk entier
-    min_score: float = 0.0  # score reranker minimal ; 0 = pas de filtrage
+    min_score: float = 0.1  # score reranker minimal ; réglé via `loom-memory eval`
 
     # Fichiers lisibles par add_file. Vide = add_file refusé. En variable d'environnement :
     # chemins séparés par ':' (LOOM_MEMORY_ALLOWED_ROOTS=/home/denis/dev:/home/denis/notes).
@@ -72,3 +72,7 @@ class Settings(BaseSettings):
     @property
     def export_path(self) -> Path:
         return self.data_dir / "export.jsonl"
+
+    @property
+    def golden_path(self) -> Path:
+        return self.data_dir / "golden.jsonl"

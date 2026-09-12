@@ -19,7 +19,13 @@ class Retriever:
         self.reranker = reranker
 
     async def search(
-        self, query: str, project: str | None, tags: Sequence[str] | None, k: int
+        self,
+        query: str,
+        project: str | None,
+        tags: Sequence[str] | None,
+        k: int,
+        *,
+        min_score: float | None = None,
     ) -> list[Hit]:
         query = query.strip()
         if not query:
@@ -33,13 +39,16 @@ class Retriever:
         passages = [f"{c.heading_path}\n\n{c.text}" for c in candidates]
         scores = await asyncio.to_thread(self.reranker.score, query, passages)
         ranked = sorted(zip(candidates, scores, strict=True), key=lambda cs: cs[1], reverse=True)
-        return self._group(ranked, k)
+        threshold = self._s.min_score if min_score is None else min_score
+        return self._group(ranked, k, threshold)
 
-    def _group(self, ranked: list[tuple[ScoredChunk, float]], k: int) -> list[Hit]:
+    def _group(
+        self, ranked: list[tuple[ScoredChunk, float]], k: int, threshold: float
+    ) -> list[Hit]:
         per_doc: dict[str, int] = {}
         hits: list[Hit] = []
         for chunk, score in ranked:
-            if score < self._s.min_score:
+            if score < threshold:
                 break
             n = per_doc.get(chunk.doc_id, 0)
             if n >= self._s.max_chunks_per_doc:

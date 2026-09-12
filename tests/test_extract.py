@@ -14,9 +14,34 @@ HTML = """<html><head><title>Ma page</title></head><body>
 
 def test_extract_from_html_keeps_main_content() -> None:
     ex = extract_from_html(HTML, url="https://example.org/page")
-    assert ex.title in {"Ma page", "Titre principal"}
+    assert ex.title == "Ma page"
+    assert ex.text.startswith("# Titre principal")
     assert "plomberie" in ex.text
-    assert "Accueil Contact" not in ex.text
+    assert "Accueil Contact" not in ex.text and "© 2026" not in ex.text
+
+
+def test_extract_keeps_structure_and_separates_glued_labels() -> None:
+    html = """<html><head><meta property="og:title" content="Guide"><title>x</title></head><body>
+    <header><nav>menu</nav></header>
+    <section><p class="eyebrow">Engagements</p><h2>Ce que vous voulez savoir.</h2>
+    <p><span class="lbl">Ce qui arrive</span>L'agent plante.</p>
+    <p><span class="lbl">Ce que je fais</span><strong>Il reprend.</strong>État persisté.</p>
+    <p>Des <code>tokens</code>s et du <em>texte</em>, normal.</p>
+    <h3>Détail</h3><ul><li>un</li><li>deux</li></ul>
+    <pre><code>x = 1</code></pre>
+    <table><tr><th>a</th><th>b</th></tr><tr><td>1</td><td>2</td></tr></table>
+    </section><footer>pied</footer></body></html>"""
+    ex = extract_from_html(html, url="https://example.org/g")
+    assert ex.title == "Guide"
+    assert "## Ce que vous voulez savoir." in ex.text
+    assert "### Détail" in ex.text
+    assert "Ce qui arrive L'agent plante." in ex.text
+    assert "Ce que je fais **Il reprend.** État persisté." in ex.text
+    assert "Des `tokens`s et du *texte*, normal." in ex.text
+    assert "- un\n- deux" in ex.text
+    assert "```\nx = 1\n```" in ex.text
+    assert "| a | b |" in ex.text
+    assert "menu" not in ex.text and "pied" not in ex.text
 
 
 def test_extract_from_html_empty_raises() -> None:

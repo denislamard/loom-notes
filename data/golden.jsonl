@@ -1,0 +1,8 @@
+{"query":"commande docker pour lancer qdrant","doc_id":"a086f05c-e7ec-47a2-b33b-66141146417c","title":"Créer le conteneur Qdrant (Docker)"}
+{"query":"comment je relance qdrant après un reboot ?","doc_id":"a086f05c-e7ec-47a2-b33b-66141146417c","title":"Créer le conteneur Qdrant (Docker)"}
+{"query":"où est stocké qdrant sur le disque","doc_id":"a086f05c-e7ec-47a2-b33b-66141146417c","title":"Créer le conteneur Qdrant (Docker)"}
+{"query":"quels sont les rôles de loom-fs et leurs plafonds ?","doc_id":"f3c9d186-c844-427b-89c5-0ed64f515c88","title":"loom-fs — serveur MCP filesystem à rôles"}
+{"query":"que fait delete dans loom-fs, est-ce que ça efface vraiment ?","doc_id":"f3c9d186-c844-427b-89c5-0ed64f515c88","title":"loom-fs — serveur MCP filesystem à rôles","project":"loom-fs"}
+{"query":"comment purger le journal d'audit sans arrêter le serveur","doc_id":"f3c9d186-c844-427b-89c5-0ed64f515c88","title":"loom-fs — serveur MCP filesystem à rôles"}
+{"query":"pourquoi éviter uv run comme command dans claude desktop","doc_id":"f3c9d186-c844-427b-89c5-0ed64f515c88","title":"loom-fs — serveur MCP filesystem à rôles"}
+{"query":"quels fichiers sont refusés par défaut (.env, clés)","doc_id":"f3c9d186-c844-427b-89c5-0ed64f515c88","title":"loom-fs — serveur MCP filesystem à rôles"}
