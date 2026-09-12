@@ -21,6 +21,7 @@ from loom_memory.ingest.paths import PathDeniedError
 from loom_memory.models import DocSummary, Document, Hit, IngestResult
 from loom_memory.service import MemoryService, NotFoundError, build_service
 from loom_memory.settings import Settings
+from loom_memory.store import ModelMismatchError, StoreUnavailableError
 
 log = logging.getLogger("loom_memory")
 
@@ -58,7 +59,12 @@ def create_server(settings: Settings | None = None, *, fake: bool | None = None)
     @asynccontextmanager
     async def lifespan(_: FastMCP) -> AsyncGenerator[None]:
         service = build_service(settings, fake=fake)
-        await service.start()
+        try:
+            await service.start()
+        except (StoreUnavailableError, ModelMismatchError) as exc:
+            log.error("démarrage impossible : %s", exc)
+            await service.close()
+            raise
         holder["svc"] = service
         warm: asyncio.Task[None] | None = None
         if settings.warmup_on_start:

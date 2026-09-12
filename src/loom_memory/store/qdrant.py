@@ -13,6 +13,7 @@ from typing import Any
 from qdrant_client import AsyncQdrantClient
 from qdrant_client import models as qm
 from qdrant_client.conversions import common_types as ct
+from qdrant_client.http.exceptions import ResponseHandlingException
 
 from loom_memory.embed.base import Embedding
 from loom_memory.ids import point_id
@@ -23,6 +24,10 @@ _SCROLL_PAGE = 256
 
 
 class ModelMismatchError(Exception):
+    pass
+
+
+class StoreUnavailableError(Exception):
     pass
 
 
@@ -73,10 +78,17 @@ class MemoryStore:
                 f"la configuration demande {dense_model} ({dense_dim}) : "
                 "lance `loom-memory reindex`"
             )
-        if not await self._c.collection_exists(self._s.documents_collection):
+        try:
+            has_documents = await self._c.collection_exists(self._s.documents_collection)
+        except ResponseHandlingException as exc:
+            raise StoreUnavailableError(
+                f"Qdrant injoignable sur {self._s.qdrant_url} ({exc}). "
+                "Le conteneur tourne-t-il ? `docker start qdrant`, puis relancer."
+            ) from exc
+        if not has_documents:
             await self._c.create_collection(self._s.documents_collection, vectors_config={})
             if not self.is_local:
-                for field in ("content_hash", "project"):
+                for field in ("content_hash", "project", "source"):
                     await self._c.create_payload_index(
                         self._s.documents_collection, field, qm.PayloadSchemaType.KEYWORD
                     )
@@ -184,12 +196,16 @@ class MemoryStore:
         return Document.model_validate(points[0].payload) if points else None
 
     async def find_by_hash(self, content_hash: str) -> Document | None:
+        return await self._find_one("content_hash", content_hash)
+
+    async def find_by_source(self, source: str) -> Document | None:
+        return await self._find_one("source", source)
+
+    async def _find_one(self, field: str, value: str) -> Document | None:
         points, _ = await self._c.scroll(
             self._s.documents_collection,
             scroll_filter=qm.Filter(
-                must=[
-                    qm.FieldCondition(key="content_hash", match=qm.MatchValue(value=content_hash))
-                ]
+                must=[qm.FieldCondition(key=field, match=qm.MatchValue(value=value))]
             ),
             limit=1,
             with_payload=True,

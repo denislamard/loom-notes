@@ -13,7 +13,7 @@ from loom_memory.ingest.extract import ExtractionError
 from loom_memory.ingest.paths import PathDeniedError
 from loom_memory.service import MemoryService, NotFoundError, build_service
 from loom_memory.settings import Settings
-from loom_memory.store import ModelMismatchError
+from loom_memory.store import ModelMismatchError, StoreUnavailableError
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="loom-memory — mémoire locale.")
 
@@ -46,7 +46,14 @@ def _run[T](fn: Callable[[MemoryService], Awaitable[T]], *, check_model: bool = 
 
     try:
         return asyncio.run(go())
-    except (NotFoundError, ValueError, ModelMismatchError, ExtractionError, PathDeniedError) as exc:
+    except (
+        NotFoundError,
+        ValueError,
+        ModelMismatchError,
+        StoreUnavailableError,
+        ExtractionError,
+        PathDeniedError,
+    ) as exc:
         typer.secho(f"erreur : {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
 
@@ -101,8 +108,8 @@ def search(
         return
     for h in hits:
         typer.secho(f"{h.score:.3f}  {h.title}  [{h.project}]  {h.doc_id}", bold=True)
-        typer.echo(f"       {h.heading_path}")
-        typer.echo(f"       {h.snippet}\n")
+        typer.echo(f"       {h.heading_path}{'  (extrait)' if h.truncated else ''}")
+        typer.echo("       " + h.snippet.replace("\n", "\n       ") + "\n")
 
 
 @app.command()
@@ -118,7 +125,8 @@ def list_docs(
 ) -> None:
     """Derniers documents ajoutés."""
     for d in _run(lambda s: s.list_docs(project, n)):
-        typer.echo(f"{d.added_at}  {d.project:<12}  {d.title}  ({d.chars} car.)  {d.doc_id}")
+        when = (d.updated_at or d.added_at)[:19]
+        typer.echo(f"{when}  {d.project:<12}  {d.title}  ({d.chars} car.)  {d.doc_id}")
 
 
 @app.command()

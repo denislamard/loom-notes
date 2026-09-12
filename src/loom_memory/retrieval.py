@@ -45,13 +45,15 @@ class Retriever:
             if n >= self._s.max_chunks_per_doc:
                 continue
             per_doc[chunk.doc_id] = n + 1
+            short = len(chunk.text) <= self._s.full_chunk_chars
             hits.append(
                 Hit(
                     doc_id=chunk.doc_id,
                     title=chunk.title,
                     project=chunk.project,
                     score=round(score, 4),
-                    snippet=_snippet(chunk.text, self._s.snippet_chars),
+                    snippet=chunk.text if short else _snippet(chunk.text, self._s.snippet_chars),
+                    truncated=not short,
                     heading_path=chunk.heading_path,
                     source=chunk.source,
                     added_at=chunk.added_at,

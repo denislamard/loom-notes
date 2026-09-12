@@ -140,3 +140,53 @@ async def test_add_file_outside_roots_is_refused(service: MemoryService, tmp_pat
     with pytest.raises(PathDeniedError):
         await service.add_file(outside, "p")
     assert await service.projects() == {}
+
+
+async def test_add_file_same_source_updates_instead_of_duplicating(
+    service: MemoryService, tmp_path: Path
+) -> None:
+    p = tmp_path / "note.md"
+    p.write_text("# Note\n\nversion un", encoding="utf-8")
+    r1 = await service.add_file(p, "loom", ["a"])
+    assert not r1.updated
+
+    same = await service.add_file(p, "loom")  # contenu identique : rien n'est écrit
+    assert same.duplicate_of == r1.doc_id and same.chunks == 0
+
+    p.write_text("# Note\n\nversion deux", encoding="utf-8")
+    r2 = await service.add_file(p, "loom")
+    assert r2.doc_id == r1.doc_id and r2.updated and r2.duplicate_of is None
+    doc = await service.get(r1.doc_id)
+    assert "version deux" in doc.text
+    assert doc.tags == ["a"]  # tags conservés quand on n'en donne pas
+    assert doc.added_at == (await service.list_docs())[0].added_at and doc.updated_at is not None
+    assert await service.projects() == {"loom": 1}
+
+    p.write_text("# Note\n\nversion trois", encoding="utf-8")
+    r3 = await service.add_file(p, "autre", ["b"])  # projet et tags explicites : remplacés
+    doc = await service.get(r3.doc_id)
+    assert doc.project == "autre" and doc.tags == ["b"]
+
+
+async def test_search_returns_full_short_chunk(service: MemoryService) -> None:
+    table = "| a | b |\n|---|---|\n| 1 | 2 |"
+    await service.add_text(f"Tableau des rôles.\n\n{table}", "Rôles", "p")
+    hit = (await service.search("tableau rôles"))[0]
+    assert not hit.truncated and table in hit.snippet
+
+    long = "Mot " * 600
+    await service.add_text(long, "Long texte", "p")
+    hit = next(h for h in await service.search("mot mot mot") if h.title == "Long texte")
+    assert hit.truncated and len(hit.snippet) <= 301 and hit.snippet.endswith("…")
+
+
+async def test_unreachable_qdrant_has_clear_error(tmp_path: Path) -> None:
+    from loom_memory.store import StoreUnavailableError
+
+    svc = build_service(
+        Settings(data_dir=tmp_path, qdrant_url="http://127.0.0.1:1", fetch_timeout_s=1),
+        fake=True,
+    )
+    with pytest.raises(StoreUnavailableError, match="docker start qdrant"):
+        await svc.start()
+    await svc.close()

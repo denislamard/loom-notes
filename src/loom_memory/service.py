@@ -15,7 +15,7 @@ from loom_memory.ingest import (
     read_markdown_file,
 )
 from loom_memory.ingest.paths import resolve_allowed
-from loom_memory.models import DocSummary, Document, Hit, IngestResult, SourceKind
+from loom_memory.models import DocSummary, Document, Hit, IngestResult, SourceKind, utc_now_iso
 from loom_memory.retrieval import Retriever
 from loom_memory.settings import Settings
 from loom_memory.store.qdrant import MemoryStore
@@ -100,8 +100,7 @@ class MemoryService:
             old.source,
             old.project,
             old.tags,
-            doc_id=old.doc_id,
-            added_at=old.added_at,
+            replace=old,
         )
 
     async def delete(self, doc_id: str) -> DocSummary:
@@ -117,37 +116,55 @@ class MemoryService:
         project: str,
         tags: Sequence[str] | None,
         *,
-        doc_id: str | None = None,
-        added_at: str | None = None,
+        replace: Document | None = None,
     ) -> IngestResult:
+        """Ingestion commune. `replace` : document existant à remplacer (même doc_id).
+        Une source (URL, fichier) déjà connue est remplacée plutôt que dupliquée."""
         project_clean = _clean_project(project)
         if not project_clean:
             raise ValueError("project est obligatoire")
         if not extracted.text:
             raise ValueError("contenu vide")
+        if replace is None and source is not None:
+            replace = await self._store.find_by_source(source)
         digest = content_hash(extracted.text)
-        existing = await self._store.find_by_hash(digest)
-        if existing is not None and existing.doc_id != doc_id:
+        same = await self._store.find_by_hash(digest)
+        if same is not None and (replace is None or same.doc_id != replace.doc_id):
             return IngestResult(
-                doc_id=existing.doc_id,
-                title=existing.title,
-                project=existing.project,
+                doc_id=same.doc_id,
+                title=same.title,
+                project=same.project,
                 chunks=0,
-                duplicate_of=existing.doc_id,
+                duplicate_of=same.doc_id,
+            )
+        if same is not None:  # même source, même contenu : rien à faire
+            return IngestResult(
+                doc_id=same.doc_id,
+                title=same.title,
+                project=same.project,
+                chunks=0,
+                duplicate_of=same.doc_id,
             )
         doc = Document(
-            doc_id=doc_id or new_doc_id(),
+            doc_id=replace.doc_id if replace else new_doc_id(),
             title=extracted.title,
             project=project_clean,
-            tags=_clean_tags(tags) or [],
+            tags=_clean_tags(tags) or (replace.tags if replace else []),
             source_kind=kind,
             source=source,
+            added_at=replace.added_at if replace else utc_now_iso(),
+            updated_at=utc_now_iso() if replace else None,
             content_hash=digest,
             text=extracted.text,
-            **({"added_at": added_at} if added_at else {}),
         )
         n = await self._index(doc)
-        return IngestResult(doc_id=doc.doc_id, title=doc.title, project=doc.project, chunks=n)
+        return IngestResult(
+            doc_id=doc.doc_id,
+            title=doc.title,
+            project=doc.project,
+            chunks=n,
+            updated=replace is not None,
+        )
 
     async def _index(self, doc: Document) -> int:
         chunks = chunk_document(doc.doc_id, doc.title, doc.text, self._s)

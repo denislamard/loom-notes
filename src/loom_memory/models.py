@@ -22,6 +22,7 @@ class Document(BaseModel):
     source_kind: SourceKind
     source: str | None = None
     added_at: str = Field(default_factory=utc_now_iso)
+    updated_at: str | None = None
     content_hash: str
     text: str
 
@@ -46,6 +47,7 @@ class DocSummary(BaseModel):
     source_kind: SourceKind
     source: str | None
     added_at: str
+    updated_at: str | None
     chars: int
 
     @classmethod
@@ -58,6 +60,7 @@ class DocSummary(BaseModel):
             source_kind=doc.source_kind,
             source=doc.source,
             added_at=doc.added_at,
+            updated_at=doc.updated_at,
             chars=len(doc.text),
         )
 
@@ -67,7 +70,10 @@ class Hit(BaseModel):
     title: str
     project: str
     score: float
-    snippet: str
+    snippet: str = Field(
+        description="Le chunk entier s'il est court, sinon un extrait (voir `truncated`)."
+    )
+    truncated: bool = Field(description="True si `snippet` est un extrait ; `get` donne le reste.")
     heading_path: str
     source: str | None
     added_at: str
@@ -78,4 +84,7 @@ class IngestResult(BaseModel):
     title: str
     project: str
     chunks: int
-    duplicate_of: str | None = None
+    updated: bool = Field(default=False, description="True si un document existant a été remplacé.")
+    duplicate_of: str | None = Field(
+        default=None, description="doc_id d'un document au contenu identique ; rien n'a été écrit."
+    )
