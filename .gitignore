@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# loom-memory
+data/qdrant/
+data/meta.json
+.env
