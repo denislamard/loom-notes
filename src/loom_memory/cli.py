@@ -9,6 +9,8 @@ from typing import Annotated
 import typer
 from pydantic import BaseModel
 
+from loom_memory.ingest.extract import ExtractionError
+from loom_memory.ingest.paths import PathDeniedError
 from loom_memory.service import MemoryService, NotFoundError, build_service
 from loom_memory.settings import Settings
 from loom_memory.store import ModelMismatchError
@@ -44,7 +46,7 @@ def _run[T](fn: Callable[[MemoryService], Awaitable[T]], *, check_model: bool = 
 
     try:
         return asyncio.run(go())
-    except (NotFoundError, ValueError, ModelMismatchError) as exc:
+    except (NotFoundError, ValueError, ModelMismatchError, ExtractionError, PathDeniedError) as exc:
         typer.secho(f"erreur : {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
 

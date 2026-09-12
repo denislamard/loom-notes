@@ -14,6 +14,7 @@ from loom_memory.ingest import (
     fetch_url,
     read_markdown_file,
 )
+from loom_memory.ingest.paths import resolve_allowed
 from loom_memory.models import DocSummary, Document, Hit, IngestResult, SourceKind
 from loom_memory.retrieval import Retriever
 from loom_memory.settings import Settings
@@ -87,7 +88,7 @@ class MemoryService:
     async def add_file(
         self, path: str | Path, project: str, tags: Sequence[str] | None = None
     ) -> IngestResult:
-        p = Path(path).expanduser().resolve()
+        p = resolve_allowed(path, self._s)
         extracted = read_markdown_file(p)
         return await self._ingest(extracted, "file", str(p), project, tags)
 

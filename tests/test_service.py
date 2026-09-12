@@ -130,3 +130,13 @@ def test_store_mode_follows_settings(settings: Settings) -> None:
         Settings(data_dir=settings.data_dir, qdrant_url="http://127.0.0.1:6333")
     )
     assert not remote.is_local
+
+
+async def test_add_file_outside_roots_is_refused(service: MemoryService, tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-hors.md"
+    outside.write_text("# Hors\n\ncontenu", encoding="utf-8")
+    from loom_memory.ingest.paths import PathDeniedError
+
+    with pytest.raises(PathDeniedError):
+        await service.add_file(outside, "p")
+    assert await service.projects() == {}

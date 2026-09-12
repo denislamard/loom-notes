@@ -1,9 +1,11 @@
 """Configuration du serveur, surchargeable par variables d'environnement LOOM_MEMORY_*."""
 
+import os
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -41,9 +43,22 @@ class Settings(BaseSettings):
     snippet_chars: int = 300
     min_score: float = 0.0  # score reranker minimal ; 0 = pas de filtrage
 
+    # Fichiers lisibles par add_file. Vide = add_file refusé. En variable d'environnement :
+    # chemins séparés par ':' (LOOM_MEMORY_ALLOWED_ROOTS=/home/denis/dev:/home/denis/notes).
+    allowed_roots: Annotated[list[Path], NoDecode] = []
+    # Motifs refusés en plus de la liste de base (loom_memory.ingest.paths.BASE_DENY).
+    deny_patterns: Annotated[list[str], NoDecode] = []
+
     # Réseau (uniquement pour add_url)
     fetch_timeout_s: float = 20.0
     user_agent: str = "loom-memory/0.1 (+https://github.com/denislamard/loom-memory)"
+
+    @field_validator("allowed_roots", "deny_patterns", mode="before")
+    @classmethod
+    def _split_list(cls, v: object) -> object:
+        if isinstance(v, str):
+            return [x for x in v.split(os.pathsep) if x.strip()]
+        return v
 
     @property
     def qdrant_path(self) -> Path:

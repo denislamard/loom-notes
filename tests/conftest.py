@@ -9,7 +9,7 @@ from loom_memory.settings import Settings
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(data_dir=tmp_path / "data")
+    return Settings(data_dir=tmp_path / "data", allowed_roots=[tmp_path])
 
 
 @pytest.fixture

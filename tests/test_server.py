@@ -93,7 +93,7 @@ async def test_business_errors_are_tool_errors(settings: Settings) -> None:
         r = await c.call_tool(
             "add_file", {"path": "/nulle/part.md", "project": "p"}, raise_on_error=False
         )
-        assert r.is_error and "introuvable" in r.content[0].text  # type: ignore[union-attr]
+        assert r.is_error and "hors des racines" in r.content[0].text  # type: ignore[union-attr]
 
         r = await c.call_tool("search", {"query": "x", "k": 99}, raise_on_error=False)
         assert r.is_error

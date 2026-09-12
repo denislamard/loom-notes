@@ -17,6 +17,7 @@ from pydantic import Field
 
 from loom_memory import __version__
 from loom_memory.ingest.extract import ExtractionError
+from loom_memory.ingest.paths import PathDeniedError
 from loom_memory.models import DocSummary, Document, Hit, IngestResult
 from loom_memory.service import MemoryService, NotFoundError, build_service
 from loom_memory.settings import Settings
@@ -141,7 +142,10 @@ def create_server(settings: Settings | None = None, *, fake: bool | None = None)
         "Le titre est le premier H1, sinon le nom du fichier." + _WRITE_GUARD
     )
     async def add_file(
-        path: Annotated[str, Field(description="Chemin absolu du fichier .md sur la machine.")],
+        path: Annotated[
+            str,
+            Field(description="Chemin absolu du fichier .md, dans une des racines autorisées."),
+        ],
         project: Annotated[str, Field(description="Projet de rattachement.")],
         tags: Annotated[list[str] | None, Field(description="Tags optionnels.")] = None,
     ) -> IngestResult:
@@ -175,7 +179,7 @@ async def _call[T](awaitable: Awaitable[T]) -> T:
     """Convertit les erreurs métier en ToolError lisibles par Claude (sans trace)."""
     try:
         return await awaitable
-    except (NotFoundError, ValueError, ExtractionError) as exc:
+    except (NotFoundError, ValueError, ExtractionError, PathDeniedError) as exc:
         raise ToolError(str(exc)) from exc
 
 
