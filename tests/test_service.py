@@ -120,3 +120,13 @@ async def test_model_mismatch_is_refused(settings: Settings) -> None:
         await svc.start()
     await svc.start(check_model=False)  # voie réservée à reindex
     await svc.close()
+
+
+def test_store_mode_follows_settings(settings: Settings) -> None:
+    from loom_memory.store import MemoryStore
+
+    assert MemoryStore.open(settings).is_local
+    remote = MemoryStore.open(
+        Settings(data_dir=settings.data_dir, qdrant_url="http://127.0.0.1:6333")
+    )
+    assert not remote.is_local

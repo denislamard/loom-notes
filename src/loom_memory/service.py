@@ -42,6 +42,12 @@ class MemoryService:
     async def close(self) -> None:
         await self._store.close()
 
+    async def warmup(self) -> None:
+        """Charge les modèles (embedder + reranker) hors du chemin de la première requête."""
+        emb = await asyncio.to_thread(self._embedder.embed_query, "warmup")
+        await asyncio.to_thread(self._retriever.reranker.score, "warmup", ["warmup"])
+        del emb
+
     # ---------- lecture ----------
 
     async def search(
@@ -204,12 +210,13 @@ def _clean_tags(tags: Sequence[str] | None) -> list[str] | None:
     return list(seen) or None
 
 
-def build_service(settings: Settings | None = None, *, fake: bool = False) -> MemoryService:
-    """Assemble le service. `fake=True` remplace les modèles par des factices (tests, démo CPU)."""
+def build_service(settings: Settings | None = None, *, fake: bool | None = None) -> MemoryService:
+    """Assemble le service. `fake` (défaut : settings.fake_models) remplace les modèles par des
+    factices — tests, démo sans GPU."""
     settings = settings or Settings()
     embedder: Embedder
     reranker: Reranker
-    if fake:
+    if settings.fake_models if fake is None else fake:
         from loom_memory.embed.fake import FakeEmbedder, FakeReranker
 
         embedder, reranker = FakeEmbedder(), FakeReranker()

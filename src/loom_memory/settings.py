@@ -11,8 +11,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="LOOM_MEMORY_", env_file=".env", extra="ignore")
 
-    # Stockage
+    # Stockage. Sans qdrant_url : Qdrant embarqué dans data/qdrant (un seul processus à la fois).
+    # Avec : serveur Qdrant (Docker), accès concurrent possible (chat + Cowork + CLI).
     data_dir: Path = Field(default=_REPO_ROOT / "data")
+    qdrant_url: str | None = None
+    qdrant_api_key: str | None = None
     chunks_collection: str = "memory"
     documents_collection: str = "documents"
 
@@ -22,6 +25,8 @@ class Settings(BaseSettings):
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     device: str = "cuda"
     use_fp16: bool = True
+    fake_models: bool = False  # modèles factices (tests, démo sans GPU)
+    warmup_on_start: bool = True  # charge les modèles en tâche de fond au démarrage du serveur
 
     # Chunking (en caractères ; ~4 caractères par token en français)
     chunk_target_chars: int = 1800

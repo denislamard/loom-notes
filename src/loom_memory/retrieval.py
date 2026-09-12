@@ -16,7 +16,7 @@ class Retriever:
         self._s = settings
         self._store = store
         self._embedder = embedder
-        self._reranker = reranker
+        self.reranker = reranker
 
     async def search(
         self, query: str, project: str | None, tags: Sequence[str] | None, k: int
@@ -31,7 +31,7 @@ class Retriever:
         if not candidates:
             return []
         passages = [f"{c.heading_path}\n\n{c.text}" for c in candidates]
-        scores = await asyncio.to_thread(self._reranker.score, query, passages)
+        scores = await asyncio.to_thread(self.reranker.score, query, passages)
         ranked = sorted(zip(candidates, scores, strict=True), key=lambda cs: cs[1], reverse=True)
         return self._group(ranked, k)
 

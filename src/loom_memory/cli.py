@@ -35,7 +35,7 @@ def _root(
 def _run[T](fn: Callable[[MemoryService], Awaitable[T]], *, check_model: bool = True) -> T:
     async def go() -> T:
         settings = Settings(data_dir=_data_dir) if _data_dir else Settings()
-        svc = build_service(settings, fake=_fake)
+        svc = build_service(settings, fake=True if _fake else None)
         try:
             await svc.start(check_model=check_model)
             return await fn(svc)

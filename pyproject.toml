@@ -13,10 +13,12 @@ dependencies = [
     "trafilatura>=2.0",
     "httpx>=0.28",
     "typer>=0.16",
+    "fastmcp>=4.0",
 ]
 
 [project.scripts]
 loom-memory = "loom_memory.cli:app"
+loom-memory-mcp = "loom_memory.server:main"
 
 [dependency-groups]
 dev = [

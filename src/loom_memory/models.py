@@ -9,7 +9,9 @@ SourceKind = Literal["text", "url", "file"]
 
 
 def utc_now_iso() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat()
+    # Microsecondes conservées : added_at sert de clé de tri, deux ajouts dans la même seconde
+    # doivent rester ordonnés.
+    return datetime.now(UTC).isoformat()
 
 
 class Document(BaseModel):

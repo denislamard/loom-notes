@@ -40,14 +40,18 @@ class ScoredChunk:
 
 
 class MemoryStore:
-    def __init__(self, settings: Settings, client: AsyncQdrantClient) -> None:
+    def __init__(self, settings: Settings, client: AsyncQdrantClient, *, is_local: bool) -> None:
         self._s = settings
         self._c = client
+        self.is_local = is_local
 
     @classmethod
     def open(cls, settings: Settings) -> "MemoryStore":
+        if settings.qdrant_url:
+            client = AsyncQdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
+            return cls(settings, client, is_local=False)
         settings.qdrant_path.mkdir(parents=True, exist_ok=True)
-        return cls(settings, AsyncQdrantClient(path=str(settings.qdrant_path)))
+        return cls(settings, AsyncQdrantClient(path=str(settings.qdrant_path)), is_local=True)
 
     async def close(self) -> None:
         await self._c.close()
@@ -71,6 +75,11 @@ class MemoryStore:
             )
         if not await self._c.collection_exists(self._s.documents_collection):
             await self._c.create_collection(self._s.documents_collection, vectors_config={})
+            if not self.is_local:
+                for field in ("content_hash", "project"):
+                    await self._c.create_payload_index(
+                        self._s.documents_collection, field, qm.PayloadSchemaType.KEYWORD
+                    )
         if not await self._c.collection_exists(self._s.chunks_collection):
             await self._create_chunks_collection(dense_dim)
         if meta is None:
@@ -91,15 +100,11 @@ class MemoryStore:
         )
         # Les index payload sont ignorés en mode local ; ils comptent dès qu'on passe sur un
         # serveur Qdrant (Docker). On les déclare donc seulement dans ce cas.
-        if not self._is_local:
+        if not self.is_local:
             for field in ("project", "tags", "doc_id"):
                 await self._c.create_payload_index(
                     self._s.chunks_collection, field, qm.PayloadSchemaType.KEYWORD
                 )
-
-    @property
-    def _is_local(self) -> bool:
-        return type(self._c._client).__name__ == "AsyncQdrantLocal"  # pyright: ignore[reportPrivateUsage]
 
     def _read_meta(self) -> dict[str, Any] | None:
         p = self._s.meta_path
