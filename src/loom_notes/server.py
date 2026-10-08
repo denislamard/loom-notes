@@ -1,6 +1,6 @@
-"""Serveur MCP (stdio) exposant la mémoire à Claude Desktop et aux agents LOOM.
+"""Serveur MCP (stdio) exposant la mémoire à Claude Desktop et aux agents IA.
 
-Règle absolue : les tools d'écriture ne sont appelés que sur demande explicite de Denis.
+Règle absolue : les tools d'écriture ne sont appelés que sur demande explicite de l'utilisateur.
 Elle est répétée dans les instructions du serveur et dans chaque description de tool.
 """
 
@@ -26,22 +26,24 @@ from loom_notes.store import ModelMismatchError, StoreUnavailableError
 log = logging.getLogger("loom_notes")
 
 INSTRUCTIONS = """\
-Mémoire personnelle de Denis (loom-notes). Son contenu est choisi et ajouté par Denis lui-même :
-projets, produits, décisions, notes techniques, pages web qu'il a jugées utiles.
+Mémoire personnelle de l'utilisateur (loom-notes). Son contenu est choisi et ajouté par
+l'utilisateur lui-même : projets, produits, décisions, notes techniques, pages web qu'il a jugées
+utiles.
 
 Lecture : appelle `search` avant de répondre à toute question qui touche aux projets, produits,
-décisions passées ou notes de Denis, ou dès qu'il fait référence à quelque chose qu'il t'aurait
-"déjà dit". Sans `project`, la recherche est globale et chaque résultat indique son projet.
-Utilise `get` quand un extrait ne suffit pas.
+décisions passées ou notes de l'utilisateur, ou dès qu'il fait référence à quelque chose qu'il
+t'aurait "déjà dit". Sans `project`, la recherche est globale et chaque résultat indique son
+projet. Utilise `get` quand un extrait ne suffit pas.
 
 Écriture : n'appelle JAMAIS `add_text`, `add_url`, `add_file`, `update` ou `delete` de ta propre
-initiative. Uniquement quand Denis le demande explicitement dans son message courant
+initiative. Uniquement quand l'utilisateur le demande explicitement dans son message courant
 ("ajoute ça à ma mémoire", "mémorise cette page", "supprime ce document"). En cas de doute,
-demande-lui. Chaque tool d'écriture renvoie ce qu'il a réellement fait : montre-le à Denis.
+demande-lui. Chaque tool d'écriture renvoie ce qu'il a réellement fait : montre-le à
+l'utilisateur.
 """
 
 _WRITE_GUARD = (
-    " N'appeler QUE si Denis le demande explicitement dans son message courant ; "
+    " N'appeler QUE si l'utilisateur le demande explicitement dans son message courant ; "
     "jamais de ta propre initiative."
 )
 
@@ -92,9 +94,9 @@ def create_server(settings: Settings | None = None, *, fake: bool | None = None)
         ] = None,
         k: Annotated[int, Field(ge=1, le=10, description="Nombre de résultats.")] = 5,
     ) -> list[Hit]:
-        """Recherche hybride (dense + sparse, reranking) dans la mémoire de Denis. À appeler avant
-        de répondre sur ses projets, décisions ou notes. Renvoie des extraits courts avec doc_id,
-        titre, projet et score ; utilise `get` pour lire un document en entier."""
+        """Recherche hybride (dense + sparse, reranking) dans la mémoire de l'utilisateur. À
+        appeler avant de répondre sur ses projets, décisions ou notes. Renvoie des extraits courts
+        avec doc_id, titre, projet et score ; utilise `get` pour lire un document en entier."""
         return await _call(svc().search(query, project, tags, k))
 
     @mcp.tool(annotations={"read_only_hint": True})
@@ -120,14 +122,14 @@ def create_server(settings: Settings | None = None, *, fake: bool | None = None)
 
     # ---------- écriture : uniquement sur demande explicite ----------
 
-    @mcp.tool(description="Ajoute un texte brut à la mémoire de Denis." + _WRITE_GUARD)
+    @mcp.tool(description="Ajoute un texte brut à la mémoire de l'utilisateur." + _WRITE_GUARD)
     async def add_text(
         text: Annotated[str, Field(description="Contenu à mémoriser, tel quel.")],
         title: Annotated[
             str,
             Field(min_length=3, description="Titre court et explicite (apparaît dans list_docs)."),
         ],
-        project: Annotated[str, Field(description="Projet de rattachement, ex. 'loom'.")],
+        project: Annotated[str, Field(description="Projet de rattachement.")],
         tags: Annotated[list[str] | None, Field(description="Tags optionnels.")] = None,
     ) -> IngestResult:
         return await _call(svc().add_text(text, title, project, tags))

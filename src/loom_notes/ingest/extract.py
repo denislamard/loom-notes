@@ -2,11 +2,14 @@
 
 Pages web : conversion structurelle HTML → markdown (titres, listes, tableaux, code conservés)
 après retrait du bruit évident (navigation, pied de page, scripts). On privilégie la structure à
-la détection fine du contenu principal : les pages mémorisées sont choisies par Denis, pas
-moissonnées — et un titre perdu coûte plus cher au retrieval qu'un menu résiduel.
+la détection fine du contenu principal : les pages mémorisées sont choisies par l'utilisateur,
+pas moissonnées — et un titre perdu coûte plus cher au retrieval qu'un menu résiduel.
 """
 
+import asyncio
+import ipaddress
 import re
+import socket
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -61,20 +64,87 @@ def extract_from_html(html: str, url: str) -> Extracted:
 
 
 async def fetch_url(url: str, settings: Settings) -> Extracted:
-    """Télécharge la page puis délègue à extract_from_html. Seul point réseau du projet."""
+    """Télécharge la page puis délègue à extract_from_html. Seul point réseau du projet.
+
+    Chaque requête, redirections comprises, passe par `_guard` : sans `fetch_allow_private`,
+    un hôte qui est ou se résout en adresse non publique est refusé. La page est lue par
+    morceaux et coupée au-delà de `fetch_max_bytes`.
+    """
+    try:
+        scheme = httpx.URL(url).scheme
+    except httpx.InvalidURL as exc:
+        raise ExtractionError(f"URL invalide : {url}") from exc
+    if scheme not in ("http", "https"):
+        raise ExtractionError(f"seules les URL http(s) sont acceptées : {url}")
+
+    async def guard(request: httpx.Request) -> None:
+        if not settings.fetch_allow_private:
+            await _refuse_non_public(request.url)
+
     headers = {"User-Agent": settings.user_agent, "Accept": "text/html,application/xhtml+xml"}
     try:
-        async with httpx.AsyncClient(
-            follow_redirects=True, timeout=settings.fetch_timeout_s, headers=headers
-        ) as client:
-            resp = await client.get(url)
+        async with (
+            httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=settings.fetch_timeout_s,
+                headers=headers,
+                event_hooks={"request": [guard]},
+            ) as client,
+            client.stream("GET", url) as resp,
+        ):
             resp.raise_for_status()
+            ctype = resp.headers.get("content-type", "")
+            if "html" not in ctype and "xml" not in ctype:
+                raise ExtractionError(f"type de contenu non pris en charge : {ctype or 'inconnu'}")
+            body = await _read_capped(resp, settings.fetch_max_bytes)
+            encoding = resp.encoding or "utf-8"
+            final_url = str(resp.url)
     except httpx.HTTPError as exc:
         raise ExtractionError(f"téléchargement impossible : {url} ({exc})") from exc
-    ctype = resp.headers.get("content-type", "")
-    if "html" not in ctype and "xml" not in ctype:
-        raise ExtractionError(f"type de contenu non pris en charge : {ctype or 'inconnu'}")
-    return extract_from_html(resp.text, url=str(resp.url))
+    return extract_from_html(body.decode(encoding, errors="replace"), url=final_url)
+
+
+async def _refuse_non_public(url: httpx.URL) -> None:
+    """Refuse un hôte qui est, ou dont une des adresses DNS est, non publique."""
+    host = url.host
+    try:
+        addresses = {ipaddress.ip_address(host)}
+    except ValueError:
+        try:
+            infos = await asyncio.get_running_loop().getaddrinfo(
+                host, url.port, type=socket.SOCK_STREAM
+            )
+        except socket.gaierror as exc:
+            raise ExtractionError(f"hôte introuvable : {host}") from exc
+        addresses = {ipaddress.ip_address(info[4][0]) for info in infos}
+    for address in addresses:
+        if not _is_public(address):
+            raise ExtractionError(
+                f"adresse non publique refusée : {host} ({address}). "
+                "LOOM_NOTES_FETCH_ALLOW_PRIVATE=true pour l'autoriser."
+            )
+
+
+def _is_public(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Ni boucle locale, ni réseau privé, ni lien local, ni réservée, ni multicast."""
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return address.is_global and not address.is_multicast
+
+
+async def _read_capped(resp: httpx.Response, max_bytes: int) -> bytes:
+    """Lit le corps (décompressé) sans dépasser max_bytes."""
+    declared = resp.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > max_bytes:
+        raise ExtractionError(f"page trop volumineuse : {declared} octets (maximum {max_bytes})")
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in resp.aiter_bytes():
+        size += len(chunk)
+        if size > max_bytes:
+            raise ExtractionError(f"page trop volumineuse : plus de {max_bytes} octets")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def read_markdown_file(path: Path) -> Extracted:

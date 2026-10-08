@@ -1,8 +1,17 @@
+import functools
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
+import httpx
 import pytest
 
-from loom_notes.ingest.extract import ExtractionError, extract_from_html, read_markdown_file
+from loom_notes.ingest.extract import (
+    ExtractionError,
+    extract_from_html,
+    fetch_url,
+    read_markdown_file,
+)
+from loom_notes.settings import Settings
 
 HTML = """<html><head><title>Ma page</title></head><body>
 <nav>Accueil Contact</nav>
@@ -66,3 +75,114 @@ def test_read_markdown_file_title_fallback_to_stem(tmp_path: Path) -> None:
 def test_read_markdown_file_missing(tmp_path: Path) -> None:
     with pytest.raises(ExtractionError):
         read_markdown_file(tmp_path / "absent.md")
+
+
+# ---------- fetch_url : le réseau est remplacé par httpx.MockTransport ----------
+
+PUBLIC = "http://93.184.216.34"  # adresse publique littérale : ni DNS ni connexion
+
+
+def _serve(
+    monkeypatch: pytest.MonkeyPatch, handler: Callable[[httpx.Request], httpx.Response]
+) -> list[str]:
+    """Branche handler à la place du réseau ; renvoie les URL réellement demandées."""
+    seen: list[str] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return handler(request)
+
+    client = functools.partial(httpx.AsyncClient, transport=httpx.MockTransport(record))
+    monkeypatch.setattr(httpx, "AsyncClient", client)
+    return seen
+
+
+def _page(_: httpx.Request) -> httpx.Response:
+    return httpx.Response(200, headers={"content-type": "text/html; charset=utf-8"}, text=HTML)
+
+
+async def test_fetch_url_reads_a_public_page(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    seen = _serve(monkeypatch, _page)
+    ex = await fetch_url(f"{PUBLIC}/page", Settings(data_dir=tmp_path))
+    assert ex.title == "Ma page"
+    assert seen == [f"{PUBLIC}/page"]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:6333/collections",
+        "http://localhost:8080/",
+        "http://[::1]/",
+        "http://10.0.0.1/",
+        "http://192.168.1.10/admin",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://[::ffff:127.0.0.1]/",
+    ],
+)
+async def test_fetch_url_refuses_non_public_hosts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, url: str
+) -> None:
+    seen = _serve(monkeypatch, _page)
+    with pytest.raises(ExtractionError, match="adresse non publique"):
+        await fetch_url(url, Settings(data_dir=tmp_path))
+    assert seen == []
+
+
+async def test_fetch_url_checks_every_redirect(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"location": "http://127.0.0.1:6333/collections"})
+
+    seen = _serve(monkeypatch, handler)
+    with pytest.raises(ExtractionError, match="adresse non publique"):
+        await fetch_url(f"{PUBLIC}/redirige", Settings(data_dir=tmp_path))
+    assert seen == [f"{PUBLIC}/redirige"]
+
+
+async def test_fetch_url_allow_private(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    seen = _serve(monkeypatch, _page)
+    settings = Settings(data_dir=tmp_path, fetch_allow_private=True)
+    assert (await fetch_url("http://127.0.0.1:8000/", settings)).title == "Ma page"
+    assert seen == ["http://127.0.0.1:8000/"]
+
+
+async def test_fetch_url_refuses_a_declared_oversize(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _serve(monkeypatch, _page)  # Content-Length annonce plus de 100 octets
+    with pytest.raises(ExtractionError, match="trop volumineuse"):
+        await fetch_url(f"{PUBLIC}/", Settings(data_dir=tmp_path, fetch_max_bytes=100))
+
+
+async def test_fetch_url_cuts_an_undeclared_oversize(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    async def body() -> AsyncIterator[bytes]:
+        for _ in range(10):
+            yield b"<p>" + b"x" * 50 + b"</p>"
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=body())
+
+    _serve(monkeypatch, handler)
+    with pytest.raises(ExtractionError, match="plus de 100 octets"):
+        await fetch_url(f"{PUBLIC}/", Settings(data_dir=tmp_path, fetch_max_bytes=100))
+
+
+@pytest.mark.parametrize("url", ["ftp://example.org/x", "file:///etc/passwd"])
+async def test_fetch_url_refuses_other_schemes(tmp_path: Path, url: str) -> None:
+    with pytest.raises(ExtractionError, match="http"):
+        await fetch_url(url, Settings(data_dir=tmp_path))
+
+
+async def test_fetch_url_refuses_non_html(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-type": "application/pdf"}, content=b"%PDF")
+
+    _serve(monkeypatch, handler)
+    with pytest.raises(ExtractionError, match="type de contenu"):
+        await fetch_url(f"{PUBLIC}/doc.pdf", Settings(data_dir=tmp_path))

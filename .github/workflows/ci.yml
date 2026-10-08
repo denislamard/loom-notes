@@ -1,0 +1,87 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Même version d'uv qu'en local : uv.lock est vérifié tel quel (--locked).
+  UV_VERSION: "0.11.14"
+
+jobs:
+  qualite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.12"
+      - run: uv sync --locked --no-group models
+      - run: uv run --no-sync ruff check src tests
+      - run: uv run --no-sync ruff format --check src tests
+      - run: uv run --no-sync pyright
+
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ matrix.python }}
+      # Modèles factices : ni torch, ni FlagEmbedding, ni téléchargement.
+      - run: uv sync --locked --no-group models
+      - run: uv run --no-sync pytest
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.12"
+      - run: uv build
+      - run: uvx twine check --strict dist/*
+      - name: Contenu du sdist et de la roue
+        run: |
+          python3 - <<'PY'
+          import glob
+          import tarfile
+          import zipfile
+
+          with tarfile.open(glob.glob("dist/*.tar.gz")[0]) as sdist:
+              names = sorted(n.split("/", 1)[1] for n in sdist.getnames() if "/" in n)
+          print("\n".join(names))
+          extra = [n for n in names if n.startswith(("data/", "uv.lock", ".python-version"))]
+          assert not extra, f"fichiers en trop dans le sdist : {extra}"
+
+          with zipfile.ZipFile(glob.glob("dist/*.whl")[0]) as whl:
+              files = whl.namelist()
+              info = next(n for n in files if n.endswith(".dist-info/METADATA")).rsplit("/", 1)[0]
+              meta = whl.read(f"{info}/METADATA").decode()
+              entry_points = whl.read(f"{info}/entry_points.txt").decode()
+          assert f"{info}/licenses/LICENSE" in files, "LICENSE absente de la roue"
+          assert "Provides-Extra: models" in meta, "extra models absent"
+          for line in ("loom-notes = loom_notes.cli:app", "loom-notes-mcp = loom_notes.server:main"):
+              assert line in entry_points, f"commande absente : {line}"
+          PY
+      - name: Installation de la roue seule
+        run: |
+          uv venv /tmp/essai
+          uv pip install --python /tmp/essai dist/*.whl
+          /tmp/essai/bin/loom-notes --help
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/

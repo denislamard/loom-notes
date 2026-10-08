@@ -1,4 +1,4 @@
-"""loom-notes — mémoire locale pour Claude Desktop et les agents LOOM."""
+"""loom-notes — mémoire locale pour Claude Desktop et les agents IA."""
 
 from importlib.metadata import PackageNotFoundError, version
 

@@ -4,6 +4,7 @@ import importlib
 from collections.abc import Sequence
 from typing import Any
 
+from loom_notes.embed.base import resolve_device
 from loom_notes.settings import Settings
 
 
@@ -22,12 +23,13 @@ class BgeReranker:
                 flag: Any = importlib.import_module("FlagEmbedding")
             except ImportError as exc:
                 raise RuntimeError(
-                    "FlagEmbedding absent : installe le groupe 'models' (uv sync)"
+                    'FlagEmbedding absent : pip install "loom-notes[models]"'
                 ) from exc
+            device = resolve_device(self._settings.device)
             self._model = flag.FlagReranker(
                 self._settings.reranker_model,
-                use_fp16=self._settings.use_fp16 and self._settings.device != "cpu",
-                devices=self._settings.device,
+                use_fp16=self._settings.use_fp16 and device.startswith("cuda"),
+                devices=device,
             )
         return self._model
 

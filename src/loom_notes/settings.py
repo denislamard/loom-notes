@@ -9,15 +9,21 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from loom_notes import __version__
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+def _default_data_dir() -> Path:
+    """$XDG_DATA_HOME/loom-notes, sinon ~/.local/share/loom-notes (spécification XDG)."""
+    xdg = os.environ.get("XDG_DATA_HOME", "")
+    base = Path(xdg) if xdg and Path(xdg).is_absolute() else Path.home() / ".local" / "share"
+    return base / "loom-notes"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="LOOM_NOTES_", env_file=".env", extra="ignore")
+    # Variables d'environnement seulement : aucun .env n'est lu, quel que soit le dossier courant.
+    model_config = SettingsConfigDict(env_prefix="LOOM_NOTES_", extra="ignore")
 
-    # Stockage. Sans qdrant_url : Qdrant embarqué dans data/qdrant (un seul processus à la fois).
-    # Avec : serveur Qdrant (Docker), accès concurrent possible (chat + Cowork + CLI).
-    data_dir: Path = Field(default=_REPO_ROOT / "data")
+    # Stockage. Sans qdrant_url : Qdrant embarqué dans data_dir/qdrant (un seul processus à la
+    # fois). Avec : serveur Qdrant (Docker), accès concurrent possible (chat + Cowork + CLI).
+    data_dir: Path = Field(default_factory=_default_data_dir)
     qdrant_url: str | None = None
     qdrant_api_key: str | None = None
     chunks_collection: str = "memory"
@@ -27,7 +33,7 @@ class Settings(BaseSettings):
     dense_model: str = "BAAI/bge-m3"
     dense_dim: int = 1024
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
-    device: str = "cuda"
+    device: str = "auto"  # auto : cuda, sinon mps, sinon cpu ; ou une valeur torch explicite
     use_fp16: bool = True
     fake_models: bool = False  # modèles factices (tests, démo sans GPU)
     warmup_on_start: bool = True  # charge les modèles en tâche de fond au démarrage du serveur
@@ -47,13 +53,15 @@ class Settings(BaseSettings):
     min_score: float = 0.1  # score reranker minimal ; réglé via `loom-notes eval`
 
     # Fichiers lisibles par add_file. Vide = add_file refusé. En variable d'environnement :
-    # chemins séparés par ':' (LOOM_NOTES_ALLOWED_ROOTS=/home/denis/dev:/home/denis/notes).
+    # chemins séparés par ':' (LOOM_NOTES_ALLOWED_ROOTS=~/dev:~/notes).
     allowed_roots: Annotated[list[Path], NoDecode] = []
     # Motifs refusés en plus de la liste de base (loom_notes.ingest.paths.BASE_DENY).
     deny_patterns: Annotated[list[str], NoDecode] = []
 
     # Réseau (uniquement pour add_url)
     fetch_timeout_s: float = 20.0
+    fetch_max_bytes: int = 5_000_000  # taille maximale d'une page, après décompression
+    fetch_allow_private: bool = False  # True : autorise les adresses locales et privées
     user_agent: str = f"loom-notes/{__version__} (+https://github.com/denislamard/loom-notes)"
 
     @field_validator("allowed_roots", "deny_patterns", mode="before")

@@ -1,14 +1,14 @@
 # loom-notes
 
-Une mémoire locale pour Claude Desktop et mes agents LOOM. Serveur MCP + RAG hybride (BGE-M3, reranking, Qdrant). J'y mets ce que je veux, Claude vient y chercher. Tout tourne en local, sans cloud ni clé API.
+Une mémoire locale pour Claude Desktop et les agents IA. Serveur MCP + RAG hybride (BGE-M3, reranking, Qdrant). L'utilisateur y met ce qu'il veut, Claude vient y chercher. Tout tourne en local, sans cloud ni clé API.
 
 ## Pourquoi
 
-La mémoire automatique des assistants enregistre ce qu'elle croit avoir compris : des demi-vérités, des choses périmées, des inférences. Ici, rien n'entre sans que je l'aie décidé. J'ajoute un texte, une page web ou un fichier markdown ; Claude interroge cette base avant de répondre sur mes projets, mes décisions ou mes notes, et il n'écrit dedans que si je le lui demande explicitement dans le message courant.
+La mémoire automatique des assistants enregistre ce qu'elle croit avoir compris : des demi-vérités, des choses périmées, des inférences. Ici, rien n'entre sans que l'utilisateur l'ait décidé. Il ajoute un texte, une page web ou un fichier markdown ; Claude interroge cette base avant de répondre sur ses projets, ses décisions ou ses notes, et n'écrit dedans que si l'utilisateur le lui demande explicitement dans le message courant.
 
-Le contenu vit dans le dépôt, sur ma machine. Les modèles d'embedding et de reranking tournent en local. La seule sortie réseau du projet est le téléchargement d'une page quand je demande de la mémoriser.
+Le contenu vit dans un dossier local (`~/.local/share/loom-notes` par défaut). Les modèles d'embedding et de reranking tournent en local. Le réseau ne sert qu'à deux choses : télécharger les modèles au premier usage, et télécharger une page quand l'utilisateur demande de la mémoriser.
 
-Le même serveur sert Claude Desktop (chat et Cowork) et mes agents LOOM, qui consomment les mêmes tools MCP.
+Le même serveur sert Claude Desktop (chat et Cowork) et tout agent qui parle MCP : les tools sont les mêmes.
 
 ## Ce que Claude peut faire
 
@@ -54,43 +54,57 @@ Le score renvoyé est celui du reranker. Au dessus de 0,8, le passage répond di
 
 Deux collections Qdrant. `documents` contient le texte intégral et les métadonnées, sans vecteur : c'est la source de vérité. `memory` contient les chunks vectorisés et se reconstruit entièrement depuis `documents` avec `loom-notes reindex`. Les identifiants de chunk sont dérivés de l'identifiant du document et de l'index du chunk, donc une réécriture ne laisse pas d'orphelin.
 
-Le nom du modèle d'embedding est enregistré dans `data/meta.json` au moment de l'indexation. Si la configuration demande un autre modèle, le serveur refuse de démarrer et demande un `reindex` : deux modèles ne se mélangent jamais en silence dans le même index.
+Le nom du modèle d'embedding est enregistré dans `DATA_DIR/meta.json` au moment de l'indexation. Si la configuration demande un autre modèle, le serveur refuse de démarrer et demande un `reindex` : deux modèles ne se mélangent jamais en silence dans le même index.
 
 ## Installation
 
-Python 3.12, `uv`, et une machine capable de faire tourner deux modèles de 570 M de paramètres.
+Linux, Python 3.12 ou plus récent, et une machine capable de faire tourner deux modèles de 570 M de paramètres. Les modèles sont dans l'extra `models` : sans lui, le serveur démarre, mais la première recherche échoue en demandant de l'installer.
+
+Avec [uv](https://docs.astral.sh/uv/), en outil isolé :
 
 ```bash
-git clone git@github.com:denislamard/loom-notes.git
-cd loom-notes
-uv sync
+uv tool install "loom-notes[models]"
 ```
 
-`uv sync` installe aussi le groupe `models` (FlagEmbedding, torch). Les poids de BGE-M3 (environ 3 Go) et du reranker (environ 2,3 Go) sont téléchargés depuis Hugging Face au premier appel et mis en cache dans `~/.cache/huggingface`. Il n'y a rien d'autre à télécharger ensuite.
+Les commandes `loom-notes` et `loom-notes-mcp` arrivent dans `~/.local/bin`. Avec pip, dans un environnement virtuel : `pip install "loom-notes[models]"`.
 
-Sur GPU, les deux modèles tiennent dans 3 Go de VRAM en fp16. Sur CPU, ça fonctionne avec `LOOM_NOTES_DEVICE=cpu` (le fp16 est coupé automatiquement), mais le reranker devient le poste dominant : comptez une dizaine de secondes par recherche. Une carte Pascal ou plus ancienne (compute capability inférieure à 7.5) n'est pas prise en charge par les roues torch CUDA 13 publiées sur PyPI ; il faut alors soit le CPU, soit une roue CUDA 12.6.
+Sous Linux, la roue torch de PyPI embarque CUDA et pèse plusieurs Go. Sur une machine sans GPU NVIDIA, la version CPU, bien plus légère, s'installe d'abord depuis l'index de PyTorch, dans le même environnement :
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install "loom-notes[models]"
+```
+
+Avec uv, le même enchaînement fonctionne dans un environnement créé par `uv venv`, avec `uv pip install` à la place de `pip install`.
+
+Les poids de BGE-M3 (environ 3 Go) et du reranker (environ 2,3 Go) sont téléchargés depuis Hugging Face au premier usage et mis en cache dans `~/.cache/huggingface` (`HF_HOME` pour le déplacer). Il n'y a rien d'autre à télécharger ensuite.
+
+Sur GPU, les deux modèles tiennent dans 3 Go de VRAM en fp16. Le périphérique est choisi au chargement : cuda, sinon mps, sinon CPU ; `LOOM_NOTES_DEVICE` l'impose, et le fp16 n'est activé que sur cuda. Sur CPU, le reranker devient le poste dominant : comptez une dizaine de secondes par recherche. Une carte Pascal ou plus ancienne (compute capability inférieure à 7.5) n'est pas prise en charge par les roues torch CUDA 13 publiées sur PyPI ; il faut alors soit le CPU, soit une roue CUDA 12.6.
 
 Le pinning `transformers<5` n'est pas un oubli : FlagEmbedding 1.4 casse avec transformers 5 (`tokenizer.pad` reçoit une liste au lieu d'un dictionnaire).
 
 ## Qdrant
 
-Le mode embarqué de Qdrant (`QdrantClient(path=…)`) n'accepte qu'un processus à la fois. Or Claude Desktop lance deux instances de chaque serveur MCP, une pour le chat et une pour les sessions Cowork et Code ; la seconde mourrait à l'ouverture. Le serveur est donc branché sur un Qdrant en conteneur, avec le stockage dans le dépôt.
+Sans `LOOM_NOTES_QDRANT_URL`, Qdrant tourne embarqué dans `DATA_DIR/qdrant` (`QdrantClient(path=…)`) : rien à installer, mais un seul processus à la fois. Ce mode suffit pour la CLI et les tests. Il ne convient pas à Claude Desktop, qui lance deux instances de chaque serveur MCP, une pour le chat et une pour les sessions Cowork et Code : la seconde mourrait à l'ouverture. Pour Claude Desktop, il faut un Qdrant en conteneur :
 
 ```bash
+mkdir -p /home/[user]/.local/share/qdrant
 docker run -d --name qdrant --restart unless-stopped \
   --user "$(id -u):$(id -g)" \
   -e QDRANT__STORAGE__SNAPSHOTS_PATH=/qdrant/storage/snapshots \
   -p 127.0.0.1:6333:6333 \
-  -v /home/[user]/dev/loom-notes/data/qdrant:/qdrant/storage \
+  -v /home/[user]/.local/share/qdrant:/qdrant/storage \
   qdrant/qdrant
 curl -s localhost:6333/
 ```
 
-`--user` fait que les fichiers de `data/qdrant` appartiennent à l'utilisateur et non à root ; la variable `QDRANT__STORAGE__SNAPSHOTS_PATH` est nécessaire dans ce cas, sinon Qdrant ne peut pas écrire son dossier de snapshots dans l'image. Le port n'est exposé que sur l'interface locale.
+Le dossier du volume est créé avant le conteneur : sinon Docker le crée au nom de root, et Qdrant, lancé sous l'utilisateur, ne peut pas y écrire. Il est distinct de `DATA_DIR/qdrant`, le chemin du mode embarqué.
+
+`--user` fait que les fichiers du volume appartiennent à l'utilisateur et non à root ; la variable `QDRANT__STORAGE__SNAPSHOTS_PATH` est nécessaire dans ce cas, sinon Qdrant ne peut pas écrire son dossier de snapshots dans l'image. Le port n'est exposé que sur l'interface locale.
 
 `--restart unless-stopped` relance le conteneur avec le service Docker au démarrage de la machine, à condition que ce service soit activé (`systemctl is-enabled docker`, sinon `sudo systemctl enable docker`). Un `docker stop qdrant` manuel le laisse arrêté jusqu'au prochain `docker start qdrant`.
 
-Le mode embarqué reste disponible en l'absence de `LOOM_NOTES_QDRANT_URL` ; les tests l'utilisent. Les deux modes n'ont pas le même format sur disque, on ne passe pas de l'un à l'autre sans réingérer (`export` puis `import`).
+Les deux modes n'ont pas le même format sur disque, on ne passe pas de l'un à l'autre sans réingérer (`export` puis `import`).
 
 ## Branchement dans Claude Desktop
 
@@ -100,34 +114,46 @@ Le mode embarqué reste disponible en l'absence de `LOOM_NOTES_QDRANT_URL` ; les
 {
   "mcpServers": {
     "loom-notes": {
-      "command": "/home/[user]/dev/loom-notes/.venv/bin/loom-notes-mcp",
+      "command": "/home/[user]/.local/bin/loom-notes-mcp",
       "args": [],
       "env": {
         "FASTMCP_SHOW_SERVER_BANNER": "false",
         "FASTMCP_CHECK_FOR_UPDATES": "off",
         "LOOM_NOTES_QDRANT_URL": "http://127.0.0.1:6333",
-        "LOOM_NOTES_ALLOWED_ROOTS": "/home/[user]/dev",
-        "LOOM_NOTES_DEVICE": "cpu"
+        "LOOM_NOTES_ALLOWED_ROOTS": "/home/[user]/dev"
       }
     }
   }
 }
 ```
 
-Pointer directement le binaire du venv plutôt que `uv run` : `uv` peut résoudre des dépendances, voire télécharger un interpréteur, entre l'`exec()` et le handshake MCP, sans rien écrire sur la sortie standard pendant ce temps, et le client attend. Fermer complètement l'application avant d'éditer ce fichier, elle le réécrit à la fermeture.
+`command` est le chemin absolu du binaire installé, que donne `which loom-notes-mcp`. Pas de `uvx` ni de `uv run` ici : au premier lancement, ils résoudraient et téléchargeraient les dépendances, torch compris, entre l'`exec()` et le handshake MCP, sans rien écrire sur la sortie standard pendant ce temps, et le client attend. Fermer complètement l'application avant d'éditer ce fichier, elle le réécrit à la fermeture.
 
-Au démarrage, le serveur répond au handshake tout de suite et charge les modèles en tâche de fond. La première recherche peut attendre la fin de ce chargement, les suivantes non.
+Au démarrage, le serveur répond au handshake tout de suite et charge les modèles en tâche de fond, après les avoir téléchargés la toute première fois. La première recherche peut attendre la fin de ce chargement, les suivantes non.
+
+## Données
+
+Tout ce que loom-notes écrit sur le disque est dans `DATA_DIR` : `$XDG_DATA_HOME/loom-notes`, sinon `~/.local/share/loom-notes`, ou le dossier donné par `LOOM_NOTES_DATA_DIR`.
+
+| Fichier | Contenu |
+|---|---|
+| `meta.json` | Modèle d'embedding avec lequel l'index a été construit. |
+| `qdrant/` | La base, en mode embarqué seulement. |
+| `export.jsonl` | Sauvegarde écrite par `loom-notes export`. |
+| `golden.jsonl` | Jeu doré de `loom-notes eval`. |
+
+En mode serveur, la base est dans le volume du conteneur Qdrant ; `DATA_DIR` ne garde que les trois fichiers. Le serveur et la CLI doivent voir le même `DATA_DIR` et le même `QDRANT_URL`.
 
 ## Configuration
 
-Toutes les options sont des variables d'environnement préfixées `LOOM_NOTES_`, ou un fichier `.env` à la racine du dépôt (ignoré par git). Les valeurs ci-dessous sont les défauts.
+Toutes les options sont des variables d'environnement préfixées `LOOM_NOTES_` : celles du bloc `env` de Claude Desktop pour le serveur, celles du shell pour la CLI. Aucun fichier `.env` n'est lu. Les valeurs ci-dessous sont les défauts.
 
 | Variable | Défaut | Rôle |
 |---|---|---|
-| `DATA_DIR` | `data/` dans le dépôt | Répertoire des données : Qdrant embarqué, `meta.json`, export, jeu doré. |
+| `DATA_DIR` | `$XDG_DATA_HOME/loom-notes`, sinon `~/.local/share/loom-notes` | Répertoire des données : Qdrant embarqué, `meta.json`, export, jeu doré. |
 | `QDRANT_URL` | vide | URL d'un serveur Qdrant. Vide : mode embarqué dans `DATA_DIR/qdrant`. |
 | `QDRANT_API_KEY` | vide | Clé d'API si le serveur en exige une. |
-| `DEVICE` | `cuda` | Périphérique torch. `cpu` coupe le fp16. |
+| `DEVICE` | `auto` | Périphérique torch. `auto` : cuda, sinon mps, sinon cpu. Le fp16 n'est activé que sur cuda. |
 | `DENSE_MODEL` | `BAAI/bge-m3` | Modèle d'embedding. En changer impose un `reindex`. |
 | `RERANKER_MODEL` | `BAAI/bge-reranker-v2-m3` | Cross-encoder de reranking. |
 | `ALLOWED_ROOTS` | vide | Racines lisibles par `add_file`, séparées par `:`. Vide : `add_file` refusé. |
@@ -145,6 +171,8 @@ Toutes les options sont des variables d'environnement préfixées `LOOM_NOTES_`,
 | `WARMUP_ON_START` | `true` | Préchargement des modèles au démarrage du serveur. |
 | `FAKE_MODELS` | `false` | Modèles factices, pour les tests ou une démo sans GPU. |
 | `FETCH_TIMEOUT_S` | 20 | Délai de téléchargement pour `add_url`. |
+| `FETCH_MAX_BYTES` | 5000000 | Taille maximale d'une page téléchargée par `add_url`, après décompression. |
+| `FETCH_ALLOW_PRIVATE` | `false` | `true` autorise `add_url` vers la machine et le réseau local. |
 
 ## Sécurité de `add_file`
 
@@ -167,11 +195,21 @@ id_rsa*  id_ecdsa*  id_ed25519*
 
 L'extension doit être `.md`, `.markdown` ou `.txt`.
 
-Ce filtrage porte sur des noms. Un secret écrit en clair dans une note markdown d'une racine autorisée sera lu. La frontière, c'est le choix des racines ; le reste est de la défense en profondeur. `add_url` n'est pas concerné (réseau sortant, pas de lecture disque) et `add_text` ne lit rien.
+Ce filtrage porte sur des noms. Un secret écrit en clair dans une note markdown d'une racine autorisée sera lu. La frontière, c'est le choix des racines ; le reste est de la défense en profondeur. `add_url` a ses propres contrôles, décrits ci-dessous, et `add_text` ne lit rien.
+
+## Sécurité de `add_url`
+
+`add_url` est la seule sortie réseau que le modèle peut déclencher, et une page mémorisée peut contenir une injection. Deux contrôles s'appliquent à chaque requête, redirections comprises.
+
+L'hôte doit être public. Une adresse IP écrite dans l'URL, ou chacune des adresses renvoyées par le DNS, est vérifiée : boucle locale, réseaux privés, lien local, adresses réservées et multicast sont refusés. Sans ce contrôle, une page pourrait faire lire au serveur `http://127.0.0.1:6333/collections` (l'API de Qdrant) ou l'interface d'un équipement du réseau local, et la ranger en mémoire. `FETCH_ALLOW_PRIVATE=true` lève ce contrôle, pour mémoriser la page d'un service interne.
+
+La page ne doit pas dépasser `FETCH_MAX_BYTES` (5 Mo par défaut), mesurés après décompression : une réponse annoncée plus grosse est refusée avant le téléchargement, une réponse qui dépasse en cours de route est coupée.
+
+Seules les URL http et https sont acceptées, et seul le contenu HTML ou XML.
 
 ## Ligne de commande
 
-`loom-notes` expose les mêmes opérations que le serveur, plus la maintenance. En mode serveur Qdrant, la CLI fonctionne pendant que Claude Desktop tourne.
+`loom-notes` expose les mêmes opérations que le serveur, plus la maintenance. En mode serveur Qdrant, la CLI fonctionne pendant que Claude Desktop tourne. Elle lit les mêmes variables que le serveur, à exporter dans le shell : au minimum `LOOM_NOTES_QDRANT_URL`, et `LOOM_NOTES_DATA_DIR` si le dossier de données n'est pas celui par défaut.
 
 ```
 loom-notes add-text PROJET TITRE [TEXTE]      texte brut ; lu sur stdin si absent
@@ -182,7 +220,7 @@ loom-notes get DOC_ID
 loom-notes list [-p projet] [-n 20]
 loom-notes projects
 loom-notes delete DOC_ID
-loom-notes export [FICHIER]                    sauvegarde JSONL, défaut data/export.jsonl
+loom-notes export [FICHIER]                    sauvegarde JSONL, défaut DATA_DIR/export.jsonl
 loom-notes import [FICHIER]                    réimport ; les doc_id déjà présents sont ignorés
 loom-notes reindex                             reconstruit les chunks depuis les documents
 loom-notes eval [FICHIER] [--json]             évalue le retrieval sur le jeu doré
@@ -193,7 +231,7 @@ Les commandes d'ajout acceptent `-t` plusieurs fois pour les tags. Les options g
 
 ## Évaluation
 
-`data/golden.jsonl` est un jeu doré : une ligne par cas, avec la question telle que je la poserais et l'identifiant du document qui doit sortir.
+`DATA_DIR/golden.jsonl` est un jeu doré : une ligne par cas, avec la question telle que l'utilisateur la poserait et l'identifiant du document qui doit sortir.
 
 ```json
 {"query":"comment purger le journal d'audit sans arrêter le serveur","doc_id":"f3c9d186-…","title":"loom-fs — serveur MCP filesystem à rôles"}
@@ -207,25 +245,29 @@ Un changement de chunking, de modèle, de seuil ou de fusion se valide par un `e
 
 ## Sauvegarde et réindexation
 
-`loom-notes export` écrit un document par ligne dans `data/export.jsonl`, texte intégral et métadonnées compris. Ce fichier est commité avec le dépôt : c'est la sauvegarde de référence, indépendante de Qdrant et du modèle d'embedding. `data/qdrant` est ignoré par git.
+`loom-notes export` écrit un document par ligne dans `DATA_DIR/export.jsonl`, texte intégral et métadonnées compris. C'est la sauvegarde de référence, indépendante de Qdrant et du modèle d'embedding.
 
 `loom-notes import` recharge un export dans une base vide ou partielle, en réindexant chaque document et en ignorant les identifiants déjà présents. Changer de modèle d'embedding ou de mode Qdrant revient à un `export`, un changement de configuration, puis un `import` ou un `reindex`.
 
 ## Dépannage
 
-**Le serveur affiche Échec dans Claude Desktop avec « Connection closed ».** Lire les journaux depuis les paramètres de l'application. La première ligne d'erreur du serveur dit ce qui manque. Les deux causes habituelles : Qdrant injoignable (« Qdrant injoignable sur http://127.0.0.1:6333 … `docker start qdrant` »), ou un `.venv` d'avant l'ajout du script `loom-notes-mcp` (« No executable file », il suffit d'un `uv sync`).
+**Le serveur affiche Échec dans Claude Desktop avec « Connection closed ».** Lire les journaux depuis les paramètres de l'application. La première ligne d'erreur du serveur dit ce qui manque. Les deux causes habituelles : Qdrant injoignable (« Qdrant injoignable sur http://127.0.0.1:6333 … `docker start qdrant` »), ou un `command` qui ne désigne pas le binaire : y mettre le chemin absolu donné par `which loom-notes-mcp`.
 
-**Le serveur refuse de démarrer en parlant de modèle.** `data/meta.json` enregistre le modèle avec lequel l'index a été construit et il diffère de `DENSE_MODEL`. `loom-notes reindex` reconstruit l'index avec le modèle courant.
+**Le serveur refuse de démarrer en parlant de modèle.** `DATA_DIR/meta.json` enregistre le modèle avec lequel l'index a été construit et il diffère de `DENSE_MODEL`. `loom-notes reindex` reconstruit l'index avec le modèle courant.
 
 **`add_file` est refusé.** Le message nomme la règle : hors des racines autorisées, motif refusé, extension. Sans `ALLOWED_ROOTS`, tout est refusé.
 
-**Une recherche prend dix secondes.** Le reranker tourne sur CPU. Vérifier `LOOM_NOTES_DEVICE` et que torch voit bien la carte (`python -c "import torch; print(torch.cuda.is_available())"` dans le venv).
+**`add_url` est refusé.** « adresse non publique refusée » : la page est sur la machine ou le réseau local ; `LOOM_NOTES_FETCH_ALLOW_PRIVATE=true` si c'est voulu. « page trop volumineuse » : relever `LOOM_NOTES_FETCH_MAX_BYTES`.
+
+**Une recherche prend dix secondes.** Le reranker tourne sur CPU. Vérifier `LOOM_NOTES_DEVICE` et que torch voit bien la carte (`python -c "import torch; print(torch.cuda.is_available())"` avec le Python de l'installation, `~/.local/share/uv/tools/loom-notes/bin/python` pour une installation par `uv tool`).
 
 **`IndexError: list index out of range` dans FlagEmbedding au premier appel.** Le GPU est vu par torch mais sans kernels compatibles (carte trop ancienne pour la roue CUDA installée). FlagEmbedding attrape l'erreur CUDA, réduit son batch jusqu'à zéro et plante sur une liste vide. Passer en `cpu` ou installer une roue torch adaptée à la carte.
 
 ## Limites connues
 
 Le contrôle « écriture sur demande explicite » est une consigne au modèle. Une page ajoutée par `add_url` peut contenir une injection ; elle n'aura aucun pouvoir sur le disque grâce au confinement de `add_file`, mais elle pourrait pousser le modèle à écrire dans la mémoire. Les tools d'écriture renvoient toujours ce qu'ils ont fait, c'est à l'utilisateur de le lire.
+
+Le contrôle d'adresse de `add_url` résout le nom, puis httpx se connecte : un DNS qui change de réponse entre les deux (DNS rebinding) passerait au travers. Il protège des liens et des redirections vers le réseau local, pas d'un serveur DNS hostile.
 
 Les tailles de chunk sont en caractères, avec l'approximation de quatre caractères par token en français, pas en tokens du modèle.
 
@@ -235,15 +277,26 @@ Le mode serveur Qdrant ne chiffre rien et n'authentifie personne par défaut. Le
 
 Il n'y a pas de quota. Un agent en boucle peut lancer autant de recherches qu'il veut ; chacune coûte du temps de reranking, pas d'argent.
 
-## Tests et qualité
+## Développement
+
+```bash
+git clone https://github.com/denislamard/loom-notes.git
+cd loom-notes
+uv sync
+```
+
+`uv sync` installe aussi l'extra `models` (FlagEmbedding, torch), par le groupe du même nom. Les tests n'en ont pas besoin : `uv sync --no-group models` s'en passe.
 
 ```bash
 uv run ruff check src tests
+uv run ruff format --check src tests
 uv run pyright
 uv run pytest
 ```
 
-Les tests tournent sans GPU et sans téléchargement : les modèles sont remplacés par des factices déterministes (dense par sac de mots haché, sparse par comptage) suffisants pour vérifier le filtrage, la déduplication, le remplacement par source, l'export et l'import, le confinement de `add_file` et le comportement des tools à travers un client MCP en mémoire. Pyright est en mode strict.
+Les tests tournent sans GPU et sans téléchargement : les modèles sont remplacés par des factices déterministes (dense par sac de mots haché, sparse par comptage) suffisants pour vérifier le filtrage, la déduplication, le remplacement par source, l'export et l'import, le confinement de `add_file`, les contrôles de `add_url` et le comportement des tools à travers un client MCP en mémoire. Pyright est en mode strict.
+
+La CI (`.github/workflows/ci.yml`) lance ces contrôles sur Python 3.12, 3.13 et 3.14, puis construit le paquet et vérifie son contenu. `.github/workflows/publish.yml` publie : à la main vers TestPyPI, et vers PyPI à chaque étiquette `v*` dont le numéro est celui du `pyproject.toml`.
 
 ## Licence
 

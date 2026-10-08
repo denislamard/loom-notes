@@ -218,6 +218,5 @@ __marimo__/
 .streamlit/secrets.toml
 
 # loom-notes
-data/qdrant/
-data/meta.json
+data/
 .env
