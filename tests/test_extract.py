@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from loom_memory.ingest.extract import ExtractionError, extract_from_html, read_markdown_file
+from loom_notes.ingest.extract import ExtractionError, extract_from_html, read_markdown_file
 
 HTML = """<html><head><title>Ma page</title></head><body>
 <nav>Accueil Contact</nav>

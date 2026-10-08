@@ -8,7 +8,7 @@ import re
 from collections import Counter
 from collections.abc import Sequence
 
-from loom_memory.embed.base import Embedding, SparseVec
+from loom_notes.embed.base import Embedding, SparseVec
 
 _TOKEN = re.compile(r"\w+", re.UNICODE)
 

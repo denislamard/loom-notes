@@ -2,9 +2,9 @@ from pathlib import Path
 
 import pytest
 
-from loom_memory.service import MemoryService, NotFoundError, build_service
-from loom_memory.settings import Settings
-from loom_memory.store import ModelMismatchError
+from loom_notes.service import MemoryService, NotFoundError, build_service
+from loom_notes.settings import Settings
+from loom_notes.store import ModelMismatchError
 
 PLOMBERIE = (
     "# Relance de devis plomberie\n\nLes plombiers perdent des devis faute de relance. "
@@ -123,7 +123,7 @@ async def test_model_mismatch_is_refused(settings: Settings) -> None:
 
 
 def test_store_mode_follows_settings(settings: Settings) -> None:
-    from loom_memory.store import MemoryStore
+    from loom_notes.store import MemoryStore
 
     assert MemoryStore.open(settings).is_local
     remote = MemoryStore.open(
@@ -135,7 +135,7 @@ def test_store_mode_follows_settings(settings: Settings) -> None:
 async def test_add_file_outside_roots_is_refused(service: MemoryService, tmp_path: Path) -> None:
     outside = tmp_path.parent / f"{tmp_path.name}-hors.md"
     outside.write_text("# Hors\n\ncontenu", encoding="utf-8")
-    from loom_memory.ingest.paths import PathDeniedError
+    from loom_notes.ingest.paths import PathDeniedError
 
     with pytest.raises(PathDeniedError):
         await service.add_file(outside, "p")
@@ -181,7 +181,7 @@ async def test_search_returns_full_short_chunk(service: MemoryService) -> None:
 
 
 async def test_unreachable_qdrant_has_clear_error(tmp_path: Path) -> None:
-    from loom_memory.store import StoreUnavailableError
+    from loom_notes.store import StoreUnavailableError
 
     svc = build_service(
         Settings(data_dir=tmp_path, qdrant_url="http://127.0.0.1:1", fetch_timeout_s=1),

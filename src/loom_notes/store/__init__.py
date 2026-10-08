@@ -1,4 +1,4 @@
-from loom_memory.store.qdrant import (
+from loom_notes.store.qdrant import (
     MemoryStore,
     ModelMismatchError,
     ScoredChunk,

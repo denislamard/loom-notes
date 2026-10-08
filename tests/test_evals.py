@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from loom_memory.evals import GoldenCase, append_golden, load_golden, run_eval
-from loom_memory.service import MemoryService
+from loom_notes.evals import GoldenCase, append_golden, load_golden, run_eval
+from loom_notes.service import MemoryService
 
 DOCS = {
     "qdrant": (

@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from loom_memory.ingest.paths import PathDeniedError, resolve_allowed
-from loom_memory.settings import Settings
+from loom_notes.ingest.paths import PathDeniedError, resolve_allowed
+from loom_notes.settings import Settings
 
 
 def test_inside_root_is_resolved(settings: Settings, tmp_path: Path) -> None:
@@ -57,8 +57,8 @@ def test_roots_from_env_are_colon_separated(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     a, b = tmp_path / "a", tmp_path / "b"
-    monkeypatch.setenv("LOOM_MEMORY_ALLOWED_ROOTS", f"{a}{os.pathsep}{b}")
-    monkeypatch.setenv("LOOM_MEMORY_DENY_PATTERNS", "*.bak:*.old")
+    monkeypatch.setenv("LOOM_NOTES_ALLOWED_ROOTS", f"{a}{os.pathsep}{b}")
+    monkeypatch.setenv("LOOM_NOTES_DENY_PATTERNS", "*.bak:*.old")
     s = Settings(data_dir=tmp_path)
     assert s.allowed_roots == [a, b]
     assert s.deny_patterns == ["*.bak", "*.old"]

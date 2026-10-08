@@ -3,8 +3,8 @@ from typing import Any
 
 from fastmcp import Client
 
-from loom_memory.server import create_server
-from loom_memory.settings import Settings
+from loom_notes.server import create_server
+from loom_notes.settings import Settings
 
 TEXT = "Les plombiers perdent des devis faute de relance. L'agent relance à J+3 et J+7."
 

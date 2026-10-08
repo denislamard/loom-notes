@@ -1,5 +1,5 @@
-from loom_memory.ingest.chunk import chunk_document
-from loom_memory.settings import Settings
+from loom_notes.ingest.chunk import chunk_document
+from loom_notes.settings import Settings
 
 DOC = """# Guide
 

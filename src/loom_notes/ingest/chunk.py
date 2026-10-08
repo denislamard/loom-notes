@@ -4,8 +4,8 @@ longues en paragraphes avec chevauchement. Chaque chunk connaît son chemin de t
 import re
 from dataclasses import dataclass
 
-from loom_memory.models import Chunk
-from loom_memory.settings import Settings
+from loom_notes.models import Chunk
+from loom_notes.settings import Settings
 
 _HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
 _FENCE = re.compile(r"^\s*(```|~~~)")

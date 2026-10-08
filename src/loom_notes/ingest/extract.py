@@ -17,7 +17,7 @@ from lxml import html as lxml_html
 from lxml.html import HtmlElement, tostring
 from markdownify import markdownify
 
-from loom_memory.settings import Settings
+from loom_notes.settings import Settings
 
 _H1 = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
 _NOISE_XPATH = (

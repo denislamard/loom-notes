@@ -5,20 +5,20 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from loom_memory.embed.base import Embedder, Reranker
-from loom_memory.ids import new_doc_id
-from loom_memory.ingest import (
+from loom_notes.embed.base import Embedder, Reranker
+from loom_notes.ids import new_doc_id
+from loom_notes.ingest import (
     Extracted,
     chunk_document,
     content_hash,
     fetch_url,
     read_markdown_file,
 )
-from loom_memory.ingest.paths import resolve_allowed
-from loom_memory.models import DocSummary, Document, Hit, IngestResult, SourceKind, utc_now_iso
-from loom_memory.retrieval import Retriever
-from loom_memory.settings import Settings
-from loom_memory.store.qdrant import MemoryStore
+from loom_notes.ingest.paths import resolve_allowed
+from loom_notes.models import DocSummary, Document, Hit, IngestResult, SourceKind, utc_now_iso
+from loom_notes.retrieval import Retriever
+from loom_notes.settings import Settings
+from loom_notes.store.qdrant import MemoryStore
 
 
 class NotFoundError(Exception):
@@ -242,12 +242,12 @@ def build_service(settings: Settings | None = None, *, fake: bool | None = None)
     embedder: Embedder
     reranker: Reranker
     if settings.fake_models if fake is None else fake:
-        from loom_memory.embed.fake import FakeEmbedder, FakeReranker
+        from loom_notes.embed.fake import FakeEmbedder, FakeReranker
 
         embedder, reranker = FakeEmbedder(), FakeReranker()
     else:
-        from loom_memory.embed.bge_m3 import BgeM3Embedder
-        from loom_memory.embed.reranker import BgeReranker
+        from loom_notes.embed.bge_m3 import BgeM3Embedder
+        from loom_notes.embed.reranker import BgeReranker
 
         embedder, reranker = BgeM3Embedder(settings), BgeReranker(settings)
     return MemoryService(settings, MemoryStore.open(settings), embedder, reranker)

@@ -3,10 +3,10 @@
 import asyncio
 from collections.abc import Sequence
 
-from loom_memory.embed.base import Embedder, Reranker
-from loom_memory.models import Hit
-from loom_memory.settings import Settings
-from loom_memory.store.qdrant import MemoryStore, ScoredChunk
+from loom_notes.embed.base import Embedder, Reranker
+from loom_notes.models import Hit
+from loom_notes.settings import Settings
+from loom_notes.store.qdrant import MemoryStore, ScoredChunk
 
 
 class Retriever:

@@ -10,8 +10,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from loom_memory.models import Hit
-from loom_memory.service import MemoryService
+from loom_notes.models import Hit
+from loom_notes.service import MemoryService
 
 
 class GoldenCase(BaseModel):

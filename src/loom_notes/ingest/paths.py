@@ -12,7 +12,7 @@ configuration peut retirer n'est plus une garantie. La configuration ne peut qu'
 import fnmatch
 from pathlib import Path
 
-from loom_memory.settings import Settings
+from loom_notes.settings import Settings
 
 BASE_DENY: tuple[str, ...] = (
     ".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx",
@@ -31,7 +31,7 @@ class PathDeniedError(Exception):
 def resolve_allowed(path: str | Path, settings: Settings) -> Path:
     """Renvoie le chemin réel si la lecture est autorisée, sinon lève PathDeniedError."""
     if not settings.allowed_roots:
-        raise PathDeniedError("add_file désactivé : aucune racine dans LOOM_MEMORY_ALLOWED_ROOTS")
+        raise PathDeniedError("add_file désactivé : aucune racine dans LOOM_NOTES_ALLOWED_ROOTS")
     target = Path(path).expanduser().resolve()
     root = next((r for r in _resolved_roots(settings) if target.is_relative_to(r)), None)
     if root is None:

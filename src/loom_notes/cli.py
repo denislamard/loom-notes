@@ -10,13 +10,13 @@ from typing import Annotated
 import typer
 from pydantic import BaseModel
 
-from loom_memory.ingest.extract import ExtractionError
-from loom_memory.ingest.paths import PathDeniedError
-from loom_memory.service import MemoryService, NotFoundError, build_service
-from loom_memory.settings import Settings
-from loom_memory.store import ModelMismatchError, StoreUnavailableError
+from loom_notes.ingest.extract import ExtractionError
+from loom_notes.ingest.paths import PathDeniedError
+from loom_notes.service import MemoryService, NotFoundError, build_service
+from loom_notes.settings import Settings
+from loom_notes.store import ModelMismatchError, StoreUnavailableError
 
-app = typer.Typer(no_args_is_help=True, add_completion=False, help="loom-memory — mémoire locale.")
+app = typer.Typer(no_args_is_help=True, add_completion=False, help="loom-notes — mémoire locale.")
 
 _fake = False
 _data_dir: Path | None = None
@@ -172,12 +172,12 @@ def eval_(
     as_json: Annotated[bool, typer.Option("--json", help="Rapport complet en JSON.")] = False,
 ) -> None:
     """Évalue le retrieval sur le jeu doré : recall@1, recall@5, MRR, seuil suggéré."""
-    from loom_memory.evals import load_golden, run_eval
+    from loom_notes.evals import load_golden, run_eval
 
     golden = path or _settings().golden_path
     cases = load_golden(golden)
     if not cases:
-        typer.secho(f"aucun cas dans {golden} — ajoute-en avec `loom-memory eval-add`", err=True)
+        typer.secho(f"aucun cas dans {golden} — ajoute-en avec `loom-notes eval-add`", err=True)
         raise typer.Exit(1)
     report = _run(lambda s: run_eval(s, cases, k))
     if as_json:
@@ -210,7 +210,7 @@ def eval_add(
     path: Annotated[Path | None, typer.Option("--path")] = None,
 ) -> None:
     """Ajoute un cas au jeu doré (le titre est relu depuis la base pour lisibilité)."""
-    from loom_memory.evals import GoldenCase, append_golden
+    from loom_notes.evals import GoldenCase, append_golden
 
     doc = _run(lambda s: s.get(doc_id))
     case = GoldenCase(query=query, doc_id=doc.doc_id, title=doc.title, project=project)

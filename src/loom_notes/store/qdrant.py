@@ -15,10 +15,10 @@ from qdrant_client import models as qm
 from qdrant_client.conversions import common_types as ct
 from qdrant_client.http.exceptions import ResponseHandlingException
 
-from loom_memory.embed.base import Embedding
-from loom_memory.ids import point_id
-from loom_memory.models import Chunk, Document, utc_now_iso
-from loom_memory.settings import Settings
+from loom_notes.embed.base import Embedding
+from loom_notes.ids import point_id
+from loom_notes.models import Chunk, Document, utc_now_iso
+from loom_notes.settings import Settings
 
 _SCROLL_PAGE = 256
 
@@ -76,7 +76,7 @@ class MemoryStore:
             raise ModelMismatchError(
                 f"la base a été indexée avec {meta.get('dense_model')} ({meta.get('dense_dim')}), "
                 f"la configuration demande {dense_model} ({dense_dim}) : "
-                "lance `loom-memory reindex`"
+                "lance `loom-notes reindex`"
             )
         try:
             has_documents = await self._c.collection_exists(self._s.documents_collection)

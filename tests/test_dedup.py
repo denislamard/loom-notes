@@ -1,4 +1,4 @@
-from loom_memory.ingest.dedup import content_hash
+from loom_notes.ingest.dedup import content_hash
 
 
 def test_hash_ignores_case_and_whitespace() -> None:

@@ -4,8 +4,8 @@ import importlib
 from collections.abc import Sequence
 from typing import Any
 
-from loom_memory.embed.base import Embedding, SparseVec
-from loom_memory.settings import Settings
+from loom_notes.embed.base import Embedding, SparseVec
+from loom_notes.settings import Settings
 
 
 class BgeM3Embedder:

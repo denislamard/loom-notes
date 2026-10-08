@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from loom_memory.service import MemoryService, build_service
-from loom_memory.settings import Settings
+from loom_notes.service import MemoryService, build_service
+from loom_notes.settings import Settings
 
 
 @pytest.fixture

@@ -15,18 +15,18 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 
-from loom_memory import __version__
-from loom_memory.ingest.extract import ExtractionError
-from loom_memory.ingest.paths import PathDeniedError
-from loom_memory.models import DocSummary, Document, Hit, IngestResult
-from loom_memory.service import MemoryService, NotFoundError, build_service
-from loom_memory.settings import Settings
-from loom_memory.store import ModelMismatchError, StoreUnavailableError
+from loom_notes import __version__
+from loom_notes.ingest.extract import ExtractionError
+from loom_notes.ingest.paths import PathDeniedError
+from loom_notes.models import DocSummary, Document, Hit, IngestResult
+from loom_notes.service import MemoryService, NotFoundError, build_service
+from loom_notes.settings import Settings
+from loom_notes.store import ModelMismatchError, StoreUnavailableError
 
-log = logging.getLogger("loom_memory")
+log = logging.getLogger("loom_notes")
 
 INSTRUCTIONS = """\
-Mémoire personnelle de Denis (loom-memory). Son contenu est choisi et ajouté par Denis lui-même :
+Mémoire personnelle de Denis (loom-notes). Son contenu est choisi et ajouté par Denis lui-même :
 projets, produits, décisions, notes techniques, pages web qu'il a jugées utiles.
 
 Lecture : appelle `search` avant de répondre à toute question qui touche aux projets, produits,
@@ -77,7 +77,7 @@ def create_server(settings: Settings | None = None, *, fake: bool | None = None)
             holder.pop("svc", None)
             await service.close()
 
-    mcp = FastMCP("loom-memory", instructions=INSTRUCTIONS, version=__version__, lifespan=lifespan)
+    mcp = FastMCP("loom-notes", instructions=INSTRUCTIONS, version=__version__, lifespan=lifespan)
 
     # ---------- lecture ----------
 

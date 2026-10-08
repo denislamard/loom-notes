@@ -1,4 +1,4 @@
-# loom-memory
+# loom-notes
 
 Une mémoire locale pour Claude Desktop et mes agents LOOM. Serveur MCP + RAG hybride (BGE-M3, reranking, Qdrant). J'y mets ce que je veux, Claude vient y chercher. Tout tourne en local, sans cloud ni clé API.
 
@@ -52,7 +52,7 @@ Le score renvoyé est celui du reranker. Au dessus de 0,8, le passage répond di
 
 ### Stockage
 
-Deux collections Qdrant. `documents` contient le texte intégral et les métadonnées, sans vecteur : c'est la source de vérité. `memory` contient les chunks vectorisés et se reconstruit entièrement depuis `documents` avec `loom-memory reindex`. Les identifiants de chunk sont dérivés de l'identifiant du document et de l'index du chunk, donc une réécriture ne laisse pas d'orphelin.
+Deux collections Qdrant. `documents` contient le texte intégral et les métadonnées, sans vecteur : c'est la source de vérité. `memory` contient les chunks vectorisés et se reconstruit entièrement depuis `documents` avec `loom-notes reindex`. Les identifiants de chunk sont dérivés de l'identifiant du document et de l'index du chunk, donc une réécriture ne laisse pas d'orphelin.
 
 Le nom du modèle d'embedding est enregistré dans `data/meta.json` au moment de l'indexation. Si la configuration demande un autre modèle, le serveur refuse de démarrer et demande un `reindex` : deux modèles ne se mélangent jamais en silence dans le même index.
 
@@ -61,14 +61,14 @@ Le nom du modèle d'embedding est enregistré dans `data/meta.json` au moment de
 Python 3.12, `uv`, et une machine capable de faire tourner deux modèles de 570 M de paramètres.
 
 ```bash
-git clone git@github.com:denislamard/loom-memory.git
-cd loom-memory
+git clone git@github.com:denislamard/loom-notes.git
+cd loom-notes
 uv sync
 ```
 
 `uv sync` installe aussi le groupe `models` (FlagEmbedding, torch). Les poids de BGE-M3 (environ 3 Go) et du reranker (environ 2,3 Go) sont téléchargés depuis Hugging Face au premier appel et mis en cache dans `~/.cache/huggingface`. Il n'y a rien d'autre à télécharger ensuite.
 
-Sur GPU, les deux modèles tiennent dans 3 Go de VRAM en fp16. Sur CPU, ça fonctionne avec `LOOM_MEMORY_DEVICE=cpu` (le fp16 est coupé automatiquement), mais le reranker devient le poste dominant : comptez une dizaine de secondes par recherche. Une carte Pascal ou plus ancienne (compute capability inférieure à 7.5) n'est pas prise en charge par les roues torch CUDA 13 publiées sur PyPI ; il faut alors soit le CPU, soit une roue CUDA 12.6.
+Sur GPU, les deux modèles tiennent dans 3 Go de VRAM en fp16. Sur CPU, ça fonctionne avec `LOOM_NOTES_DEVICE=cpu` (le fp16 est coupé automatiquement), mais le reranker devient le poste dominant : comptez une dizaine de secondes par recherche. Une carte Pascal ou plus ancienne (compute capability inférieure à 7.5) n'est pas prise en charge par les roues torch CUDA 13 publiées sur PyPI ; il faut alors soit le CPU, soit une roue CUDA 12.6.
 
 Le pinning `transformers<5` n'est pas un oubli : FlagEmbedding 1.4 casse avec transformers 5 (`tokenizer.pad` reçoit une liste au lieu d'un dictionnaire).
 
@@ -81,7 +81,7 @@ docker run -d --name qdrant --restart unless-stopped \
   --user "$(id -u):$(id -g)" \
   -e QDRANT__STORAGE__SNAPSHOTS_PATH=/qdrant/storage/snapshots \
   -p 127.0.0.1:6333:6333 \
-  -v /home/[user]/dev/loom-memory/data/qdrant:/qdrant/storage \
+  -v /home/[user]/dev/loom-notes/data/qdrant:/qdrant/storage \
   qdrant/qdrant
 curl -s localhost:6333/
 ```
@@ -90,7 +90,7 @@ curl -s localhost:6333/
 
 `--restart unless-stopped` relance le conteneur avec le service Docker au démarrage de la machine, à condition que ce service soit activé (`systemctl is-enabled docker`, sinon `sudo systemctl enable docker`). Un `docker stop qdrant` manuel le laisse arrêté jusqu'au prochain `docker start qdrant`.
 
-Le mode embarqué reste disponible en l'absence de `LOOM_MEMORY_QDRANT_URL` ; les tests l'utilisent. Les deux modes n'ont pas le même format sur disque, on ne passe pas de l'un à l'autre sans réingérer (`export` puis `import`).
+Le mode embarqué reste disponible en l'absence de `LOOM_NOTES_QDRANT_URL` ; les tests l'utilisent. Les deux modes n'ont pas le même format sur disque, on ne passe pas de l'un à l'autre sans réingérer (`export` puis `import`).
 
 ## Branchement dans Claude Desktop
 
@@ -99,15 +99,15 @@ Le mode embarqué reste disponible en l'absence de `LOOM_MEMORY_QDRANT_URL` ; le
 ```json
 {
   "mcpServers": {
-    "loom-memory": {
-      "command": "/home/[user]/dev/loom-memory/.venv/bin/loom-memory-mcp",
+    "loom-notes": {
+      "command": "/home/[user]/dev/loom-notes/.venv/bin/loom-notes-mcp",
       "args": [],
       "env": {
         "FASTMCP_SHOW_SERVER_BANNER": "false",
         "FASTMCP_CHECK_FOR_UPDATES": "off",
-        "LOOM_MEMORY_QDRANT_URL": "http://127.0.0.1:6333",
-        "LOOM_MEMORY_ALLOWED_ROOTS": "/home/[user]/dev",
-        "LOOM_MEMORY_DEVICE": "cpu"
+        "LOOM_NOTES_QDRANT_URL": "http://127.0.0.1:6333",
+        "LOOM_NOTES_ALLOWED_ROOTS": "/home/[user]/dev",
+        "LOOM_NOTES_DEVICE": "cpu"
       }
     }
   }
@@ -120,7 +120,7 @@ Au démarrage, le serveur répond au handshake tout de suite et charge les modè
 
 ## Configuration
 
-Toutes les options sont des variables d'environnement préfixées `LOOM_MEMORY_`, ou un fichier `.env` à la racine du dépôt (ignoré par git). Les valeurs ci-dessous sont les défauts.
+Toutes les options sont des variables d'environnement préfixées `LOOM_NOTES_`, ou un fichier `.env` à la racine du dépôt (ignoré par git). Les valeurs ci-dessous sont les défauts.
 
 | Variable | Défaut | Rôle |
 |---|---|---|
@@ -171,22 +171,22 @@ Ce filtrage porte sur des noms. Un secret écrit en clair dans une note markdown
 
 ## Ligne de commande
 
-`loom-memory` expose les mêmes opérations que le serveur, plus la maintenance. En mode serveur Qdrant, la CLI fonctionne pendant que Claude Desktop tourne.
+`loom-notes` expose les mêmes opérations que le serveur, plus la maintenance. En mode serveur Qdrant, la CLI fonctionne pendant que Claude Desktop tourne.
 
 ```
-loom-memory add-text PROJET TITRE [TEXTE]     texte brut ; lu sur stdin si absent
-loom-memory add-url PROJET URL
-loom-memory add-file PROJET CHEMIN
-loom-memory search "question" [-p projet] [-t tag] [-k 5]
-loom-memory get DOC_ID
-loom-memory list [-p projet] [-n 20]
-loom-memory projects
-loom-memory delete DOC_ID
-loom-memory export [FICHIER]                   sauvegarde JSONL, défaut data/export.jsonl
-loom-memory import [FICHIER]                   réimport ; les doc_id déjà présents sont ignorés
-loom-memory reindex                            reconstruit les chunks depuis les documents
-loom-memory eval [FICHIER] [--json]            évalue le retrieval sur le jeu doré
-loom-memory eval-add "question" DOC_ID [-p projet]
+loom-notes add-text PROJET TITRE [TEXTE]      texte brut ; lu sur stdin si absent
+loom-notes add-url PROJET URL
+loom-notes add-file PROJET CHEMIN
+loom-notes search "question" [-p projet] [-t tag] [-k 5]
+loom-notes get DOC_ID
+loom-notes list [-p projet] [-n 20]
+loom-notes projects
+loom-notes delete DOC_ID
+loom-notes export [FICHIER]                    sauvegarde JSONL, défaut data/export.jsonl
+loom-notes import [FICHIER]                    réimport ; les doc_id déjà présents sont ignorés
+loom-notes reindex                             reconstruit les chunks depuis les documents
+loom-notes eval [FICHIER] [--json]             évalue le retrieval sur le jeu doré
+loom-notes eval-add "question" DOC_ID [-p projet]
 ```
 
 Les commandes d'ajout acceptent `-t` plusieurs fois pour les tags. Les options globales `--fake` (modèles factices) et `--data-dir` se placent avant la commande.
@@ -199,7 +199,7 @@ Les commandes d'ajout acceptent `-t` plusieurs fois pour les tags. Les options g
 {"query":"comment purger le journal d'audit sans arrêter le serveur","doc_id":"f3c9d186-…","title":"loom-fs — serveur MCP filesystem à rôles"}
 ```
 
-`loom-memory eval` rejoue chaque question à seuil zéro et donne, par cas, le rang du document attendu et son score, puis recall@1, recall@5 et MRR, et enfin le plus haut seuil qui ne fait perdre aucun cas trouvé, avec la part des résultats hors document attendu qui tomberaient sous ce seuil. C'est la valeur à mettre dans `MIN_SCORE`.
+`loom-notes eval` rejoue chaque question à seuil zéro et donne, par cas, le rang du document attendu et son score, puis recall@1, recall@5 et MRR, et enfin le plus haut seuil qui ne fait perdre aucun cas trouvé, avec la part des résultats hors document attendu qui tomberaient sous ce seuil. C'est la valeur à mettre dans `MIN_SCORE`.
 
 Le jeu s'enrichit au fil de l'eau : deux questions par document ajouté, avec `eval-add`. Un cas qui sort avec un score faible alors que le document contient la réponse signale presque toujours un document mal rédigé, typiquement une commande sans la phrase qui dit quand et pourquoi l'utiliser. Sur les premiers cas, la même question passait de 0,91 à 0,11 selon que le document gardait ou non ses deux phrases de contexte.
 
@@ -207,19 +207,19 @@ Un changement de chunking, de modèle, de seuil ou de fusion se valide par un `e
 
 ## Sauvegarde et réindexation
 
-`loom-memory export` écrit un document par ligne dans `data/export.jsonl`, texte intégral et métadonnées compris. Ce fichier est commité avec le dépôt : c'est la sauvegarde de référence, indépendante de Qdrant et du modèle d'embedding. `data/qdrant` est ignoré par git.
+`loom-notes export` écrit un document par ligne dans `data/export.jsonl`, texte intégral et métadonnées compris. Ce fichier est commité avec le dépôt : c'est la sauvegarde de référence, indépendante de Qdrant et du modèle d'embedding. `data/qdrant` est ignoré par git.
 
-`loom-memory import` recharge un export dans une base vide ou partielle, en réindexant chaque document et en ignorant les identifiants déjà présents. Changer de modèle d'embedding ou de mode Qdrant revient à un `export`, un changement de configuration, puis un `import` ou un `reindex`.
+`loom-notes import` recharge un export dans une base vide ou partielle, en réindexant chaque document et en ignorant les identifiants déjà présents. Changer de modèle d'embedding ou de mode Qdrant revient à un `export`, un changement de configuration, puis un `import` ou un `reindex`.
 
 ## Dépannage
 
-**Le serveur affiche Échec dans Claude Desktop avec « Connection closed ».** Lire les journaux depuis les paramètres de l'application. La première ligne d'erreur du serveur dit ce qui manque. Les deux causes habituelles : Qdrant injoignable (« Qdrant injoignable sur http://127.0.0.1:6333 … `docker start qdrant` »), ou un `.venv` d'avant l'ajout du script `loom-memory-mcp` (« No executable file », il suffit d'un `uv sync`).
+**Le serveur affiche Échec dans Claude Desktop avec « Connection closed ».** Lire les journaux depuis les paramètres de l'application. La première ligne d'erreur du serveur dit ce qui manque. Les deux causes habituelles : Qdrant injoignable (« Qdrant injoignable sur http://127.0.0.1:6333 … `docker start qdrant` »), ou un `.venv` d'avant l'ajout du script `loom-notes-mcp` (« No executable file », il suffit d'un `uv sync`).
 
-**Le serveur refuse de démarrer en parlant de modèle.** `data/meta.json` enregistre le modèle avec lequel l'index a été construit et il diffère de `DENSE_MODEL`. `loom-memory reindex` reconstruit l'index avec le modèle courant.
+**Le serveur refuse de démarrer en parlant de modèle.** `data/meta.json` enregistre le modèle avec lequel l'index a été construit et il diffère de `DENSE_MODEL`. `loom-notes reindex` reconstruit l'index avec le modèle courant.
 
 **`add_file` est refusé.** Le message nomme la règle : hors des racines autorisées, motif refusé, extension. Sans `ALLOWED_ROOTS`, tout est refusé.
 
-**Une recherche prend dix secondes.** Le reranker tourne sur CPU. Vérifier `LOOM_MEMORY_DEVICE` et que torch voit bien la carte (`python -c "import torch; print(torch.cuda.is_available())"` dans le venv).
+**Une recherche prend dix secondes.** Le reranker tourne sur CPU. Vérifier `LOOM_NOTES_DEVICE` et que torch voit bien la carte (`python -c "import torch; print(torch.cuda.is_available())"` dans le venv).
 
 **`IndexError: list index out of range` dans FlagEmbedding au premier appel.** Le GPU est vu par torch mais sans kernels compatibles (carte trop ancienne pour la roue CUDA installée). FlagEmbedding attrape l'erreur CUDA, réduit son batch jusqu'à zéro et plante sur une liste vide. Passer en `cpu` ou installer une roue torch adaptée à la carte.
 

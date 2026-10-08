@@ -1,4 +1,4 @@
-"""Configuration du serveur, surchargeable par variables d'environnement LOOM_MEMORY_*."""
+"""Configuration du serveur, surchargeable par variables d'environnement LOOM_NOTES_*."""
 
 import os
 from pathlib import Path
@@ -7,11 +7,13 @@ from typing import Annotated
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from loom_notes import __version__
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="LOOM_MEMORY_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="LOOM_NOTES_", env_file=".env", extra="ignore")
 
     # Stockage. Sans qdrant_url : Qdrant embarqué dans data/qdrant (un seul processus à la fois).
     # Avec : serveur Qdrant (Docker), accès concurrent possible (chat + Cowork + CLI).
@@ -42,17 +44,17 @@ class Settings(BaseSettings):
     max_chunks_per_doc: int = 2
     snippet_chars: int = 300  # longueur de l'extrait quand le chunk est trop long
     full_chunk_chars: int = 1000  # en dessous, search renvoie le chunk entier
-    min_score: float = 0.1  # score reranker minimal ; réglé via `loom-memory eval`
+    min_score: float = 0.1  # score reranker minimal ; réglé via `loom-notes eval`
 
     # Fichiers lisibles par add_file. Vide = add_file refusé. En variable d'environnement :
-    # chemins séparés par ':' (LOOM_MEMORY_ALLOWED_ROOTS=/home/denis/dev:/home/denis/notes).
+    # chemins séparés par ':' (LOOM_NOTES_ALLOWED_ROOTS=/home/denis/dev:/home/denis/notes).
     allowed_roots: Annotated[list[Path], NoDecode] = []
-    # Motifs refusés en plus de la liste de base (loom_memory.ingest.paths.BASE_DENY).
+    # Motifs refusés en plus de la liste de base (loom_notes.ingest.paths.BASE_DENY).
     deny_patterns: Annotated[list[str], NoDecode] = []
 
     # Réseau (uniquement pour add_url)
     fetch_timeout_s: float = 20.0
-    user_agent: str = "loom-memory/0.1 (+https://github.com/denislamard/loom-memory)"
+    user_agent: str = f"loom-notes/{__version__} (+https://github.com/denislamard/loom-notes)"
 
     @field_validator("allowed_roots", "deny_patterns", mode="before")
     @classmethod
