@@ -15,20 +15,21 @@ env:
 
 jobs:
   qualite:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
+          cache-suffix: ${{ github.job }}
       - run: uv sync --locked --no-group models
       - run: uv run --no-sync ruff check src tests
       - run: uv run --no-sync ruff format --check src tests
       - run: uv run --no-sync pyright
 
   tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -39,18 +40,20 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ matrix.python }}
+          cache-suffix: ${{ github.job }}
       # Modèles factices : ni torch, ni FlagEmbedding, ni téléchargement.
       - run: uv sync --locked --no-group models
       - run: uv run --no-sync pytest
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
+          cache-suffix: ${{ github.job }}
       - run: uv build
       - run: uvx twine check --strict dist/*
       - name: Contenu du sdist et de la roue
