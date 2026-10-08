@@ -1,7 +1,7 @@
 [project]
-name = "loom-memory"
+name = "loom-notes"
 version = "1.1.0"
-description = "Mémoire locale pour Claude Desktop et les agents LOOM - serveur MCP + RAG hybride (BGE-M3, reranking, Qdrant)."
+description = "Mémoire locale pour les agents LOOM - serveur MCP + RAG hybride (BGE-M3, reranking, Qdrant)."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.12"
