@@ -79,7 +79,7 @@ Avec uv, le même enchaînement fonctionne dans un environnement créé par `uv 
 
 Les poids de BGE-M3 (environ 3 Go) et du reranker (environ 2,3 Go) sont téléchargés depuis Hugging Face au premier usage et mis en cache dans `~/.cache/huggingface` (`HF_HOME` pour le déplacer). Il n'y a rien d'autre à télécharger ensuite.
 
-Sur GPU, les deux modèles tiennent dans 3 Go de VRAM en fp16. Le périphérique est choisi au chargement : cuda, sinon mps, sinon CPU ; `LOOM_NOTES_DEVICE` l'impose, et le fp16 n'est activé que sur cuda. Sur CPU, le reranker devient le poste dominant : comptez une dizaine de secondes par recherche. Une carte Pascal ou plus ancienne (compute capability inférieure à 7.5) n'est pas prise en charge par les roues torch CUDA 13 publiées sur PyPI ; il faut alors soit le CPU, soit une roue CUDA 12.6.
+Sur GPU, les deux modèles tiennent dans 3 Go de VRAM en fp16. Le périphérique est choisi au chargement : cuda, sinon mps, sinon CPU ; `LOOM_NOTES_DEVICE` l'impose, et le fp16 n'est activé que sur cuda. Sur CPU, le reranker devient le poste dominant : comptez une dizaine de secondes par recherche. Une carte Pascal ou plus ancienne (compute capability inférieure à 7.5) n'est pas prise en charge par les roues torch CUDA 13 publiées sur PyPI : en `auto`, loom-notes le voit, écrit une ligne d'avertissement sur stderr et passe sur le CPU ; pour garder la carte, installer une roue CUDA 12.6.
 
 Le pinning `transformers<5` n'est pas un oubli : FlagEmbedding 1.4 casse avec transformers 5 (`tokenizer.pad` reçoit une liste au lieu d'un dictionnaire).
 
@@ -153,7 +153,7 @@ Toutes les options sont des variables d'environnement préfixées `LOOM_NOTES_` 
 | `DATA_DIR` | `$XDG_DATA_HOME/loom-notes`, sinon `~/.local/share/loom-notes` | Répertoire des données : Qdrant embarqué, `meta.json`, export, jeu doré. |
 | `QDRANT_URL` | vide | URL d'un serveur Qdrant. Vide : mode embarqué dans `DATA_DIR/qdrant`. |
 | `QDRANT_API_KEY` | vide | Clé d'API si le serveur en exige une. |
-| `DEVICE` | `auto` | Périphérique torch. `auto` : cuda, sinon mps, sinon cpu. Le fp16 n'est activé que sur cuda. |
+| `DEVICE` | `auto` | Périphérique torch. `auto` : cuda si torch a des noyaux pour la carte, sinon mps, sinon cpu. Le fp16 n'est activé que sur cuda. |
 | `DENSE_MODEL` | `BAAI/bge-m3` | Modèle d'embedding. En changer impose un `reindex`. |
 | `RERANKER_MODEL` | `BAAI/bge-reranker-v2-m3` | Cross-encoder de reranking. |
 | `ALLOWED_ROOTS` | vide | Racines lisibles par `add_file`, séparées par `:`. Vide : `add_file` refusé. |
@@ -168,7 +168,7 @@ Toutes les options sont des variables d'environnement préfixées `LOOM_NOTES_` 
 | `FULL_CHUNK_CHARS` | 1000 | En dessous, `search` renvoie le chunk entier. |
 | `SNIPPET_CHARS` | 300 | Longueur de l'extrait au delà. |
 | `MIN_SCORE` | 0.1 | Score reranker minimal d'un résultat. |
-| `WARMUP_ON_START` | `true` | Préchargement des modèles au démarrage du serveur. |
+| `WARMUP_ON_START` | `true` | Préchargement des modèles au démarrage du serveur. Une requête arrivée pendant le préchargement l'attend. |
 | `FAKE_MODELS` | `false` | Modèles factices, pour les tests ou une démo sans GPU. |
 | `FETCH_TIMEOUT_S` | 20 | Délai de téléchargement pour `add_url`. |
 | `FETCH_MAX_BYTES` | 5000000 | Taille maximale d'une page téléchargée par `add_url`, après décompression. |
@@ -261,7 +261,9 @@ Un changement de chunking, de modèle, de seuil ou de fusion se valide par un `e
 
 **Une recherche prend dix secondes.** Le reranker tourne sur CPU. Vérifier `LOOM_NOTES_DEVICE` et que torch voit bien la carte (`python -c "import torch; print(torch.cuda.is_available())"` avec le Python de l'installation, `~/.local/share/uv/tools/loom-notes/bin/python` pour une installation par `uv tool`).
 
-**`IndexError: list index out of range` dans FlagEmbedding au premier appel.** Le GPU est vu par torch mais sans kernels compatibles (carte trop ancienne pour la roue CUDA installée). FlagEmbedding attrape l'erreur CUDA, réduit son batch jusqu'à zéro et plante sur une liste vide. Passer en `cpu` ou installer une roue torch adaptée à la carte.
+**« GPU … non pris en charge par ce torch … : modèles sur cpu » au démarrage.** La carte est vue par torch, mais la roue installée n'a pas de noyaux pour elle (carte trop ancienne pour la roue CUDA). En `auto`, les modèles passent sur le CPU : c'est plus lent, mais ça marche. Pour garder la carte, installer une roue torch adaptée ; pour faire taire l'avertissement, `LOOM_NOTES_DEVICE=cpu`. Avec `LOOM_NOTES_DEVICE=cuda` imposé sur une telle carte, le chargement échoue en « … impossible sur cuda : list index out of range » : FlagEmbedding attrape l'erreur CUDA, réduit son batch jusqu'à zéro et plante sur une liste vide.
+
+**« Chargement du modèle … impossible sur … ».** Le modèle n'a pas pu être chargé, ou n'a pas tourné une première fois ; la fin du message donne la cause. Rien n'est gardé : la requête suivante recharge, et un échec passager disparaît de lui-même. S'il persiste, vérifier `LOOM_NOTES_DEVICE` et l'installation de torch. Les chargements sont faits l'un après l'autre : deux chargements simultanés de FlagEmbedding (le préchargement et une première requête) cassaient le modèle (« Cannot copy out of meta tensor », « tqdm has no attribute '_lock' »), et le modèle cassé restait jusqu'au redémarrage.
 
 ## Limites connues
 

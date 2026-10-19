@@ -16,6 +16,7 @@ from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from loom_notes import __version__
+from loom_notes.embed.base import ModelLoadError
 from loom_notes.ingest.extract import ExtractionError
 from loom_notes.ingest.paths import PathDeniedError
 from loom_notes.models import DocSummary, Document, Hit, IngestResult
@@ -184,10 +185,11 @@ def create_server(settings: Settings | None = None, *, fake: bool | None = None)
 
 
 async def _call[T](awaitable: Awaitable[T]) -> T:
-    """Convertit les erreurs métier en ToolError lisibles par Claude (sans trace)."""
+    """Convertit les erreurs métier, et l'échec de chargement d'un modèle, en ToolError lisibles
+    par Claude (sans trace)."""
     try:
         return await awaitable
-    except (NotFoundError, ValueError, ExtractionError, PathDeniedError) as exc:
+    except (NotFoundError, ValueError, ExtractionError, PathDeniedError, ModelLoadError) as exc:
         raise ToolError(str(exc)) from exc
 
 
@@ -197,6 +199,9 @@ async def _warmup(service: MemoryService) -> None:
         log.info("modèles chargés")
     except asyncio.CancelledError:
         raise
+    except ModelLoadError as exc:
+        # Une ligne : la cause y est, et la requête suivante rechargera le modèle.
+        log.error("préchargement impossible : %s", exc)
     except Exception:
         log.exception("échec du préchargement des modèles")
 

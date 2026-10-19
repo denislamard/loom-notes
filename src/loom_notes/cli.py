@@ -10,6 +10,7 @@ from typing import Annotated
 import typer
 from pydantic import BaseModel
 
+from loom_notes.embed.base import ModelLoadError
 from loom_notes.ingest.extract import ExtractionError
 from loom_notes.ingest.paths import PathDeniedError
 from loom_notes.service import MemoryService, NotFoundError, build_service
@@ -59,6 +60,7 @@ def _run[T](fn: Callable[[MemoryService], Awaitable[T]], *, check_model: bool = 
         StoreUnavailableError,
         ExtractionError,
         PathDeniedError,
+        ModelLoadError,
     ) as exc:
         typer.secho(f"erreur : {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc

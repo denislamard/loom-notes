@@ -1,17 +1,21 @@
 """BGE-M3 via FlagEmbedding : dense + sparse en un seul passage, chargé paresseusement."""
 
-import importlib
 from collections.abc import Sequence
 from typing import Any
 
-from loom_notes.embed.base import Embedding, SparseVec, resolve_device
+from loom_notes.embed.base import Embedding, LazyModel, SparseVec, resolve_device
 from loom_notes.settings import Settings
 
 
 class BgeM3Embedder:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._model: Any = None
+        self._model = LazyModel[Any](
+            settings.dense_model,
+            lambda: resolve_device(settings.device),
+            self._build,
+            lambda model: self._run(model, ["warmup"]),
+        )
 
     @property
     def model_name(self) -> str:
@@ -21,31 +25,27 @@ class BgeM3Embedder:
     def dim(self) -> int:
         return self._settings.dense_dim
 
-    def _load(self) -> Any:
-        if self._model is None:
-            try:
-                flag: Any = importlib.import_module("FlagEmbedding")
-            except ImportError as exc:
-                raise RuntimeError(
-                    'FlagEmbedding absent : pip install "loom-notes[models]"'
-                ) from exc
-            device = resolve_device(self._settings.device)
-            self._model = flag.BGEM3FlagModel(
-                self._settings.dense_model,
-                use_fp16=self._settings.use_fp16 and device.startswith("cuda"),
-                devices=device,
-            )
-        return self._model
+    def _build(self, flag: Any, device: str) -> Any:
+        return flag.BGEM3FlagModel(
+            self._settings.dense_model,
+            use_fp16=self._settings.use_fp16 and device.startswith("cuda"),
+            devices=device,
+        )
 
-    def _encode(self, texts: Sequence[str]) -> list[Embedding]:
-        out: Any = self._load().encode(
-            list(texts),
+    @staticmethod
+    def _run(model: Any, texts: list[str]) -> Any:
+        return model.encode(
+            texts,
             batch_size=16,
             max_length=1024,
             return_dense=True,
             return_sparse=True,
             return_colbert_vecs=False,
         )
+
+    def _encode(self, texts: Sequence[str]) -> list[Embedding]:
+        batch = list(texts)
+        out: Any = self._model.run(lambda model: self._run(model, batch))
         dense_vecs: Any = out["dense_vecs"]
         lexical: Any = out["lexical_weights"]
         result: list[Embedding] = []
