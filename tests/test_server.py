@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastmcp import Client
 
 from loom_notes.server import create_server
@@ -97,3 +98,47 @@ async def test_business_errors_are_tool_errors(settings: Settings) -> None:
 
         r = await c.call_tool("search", {"query": "x", "k": 99}, raise_on_error=False)
         assert r.is_error
+
+
+async def test_a_qdrant_failure_during_a_call_is_a_tool_error(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Qdrant arrêté après le démarrage : message lisible, pas l'exception brute du client."""
+    from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
+
+    from loom_notes.service import MemoryService
+
+    async def down(*_: Any, **__: Any) -> Any:
+        raise ResponseHandlingException(OSError("[Errno 111] Connection refused"))
+
+    async def refused(*_: Any, **__: Any) -> Any:
+        raise UnexpectedResponse(503, "Service Unavailable", b"oops", None)  # type: ignore[arg-type]
+
+    async with Client(create_server(settings, fake=True)) as c:
+        monkeypatch.setattr(MemoryService, "search", down)
+        r = await c.call_tool("search", {"query": "x"}, raise_on_error=False)
+        assert r.is_error
+        assert r.content[0].text == (  # type: ignore[union-attr]
+            "Qdrant injoignable ([Errno 111] Connection refused). "
+            "Le conteneur tourne-t-il ? `docker start qdrant`, puis réessayer."
+        )
+        monkeypatch.setattr(MemoryService, "projects", refused)
+        r = await c.call_tool("projects", {}, raise_on_error=False)
+        assert r.is_error
+        assert r.content[0].text == (  # type: ignore[union-attr]
+            "Qdrant a refusé la requête : Unexpected Response: 503 (Service Unavailable)"
+        )
+
+
+def test_a_store_error_names_the_qdrant_server(settings: Settings) -> None:
+    from qdrant_client.http.exceptions import ResponseHandlingException
+
+    from loom_notes.store import store_error
+
+    remote = settings.model_copy(update={"qdrant_url": "http://127.0.0.1:6333"})
+    error = store_error(ResponseHandlingException(OSError("Connection refused")), remote)
+    assert str(error) == (
+        "Qdrant injoignable sur http://127.0.0.1:6333 (Connection refused). "
+        "Le conteneur tourne-t-il ? `docker start qdrant`, puis réessayer."
+    )
+    assert store_error(ValueError("autre chose"), remote) is None

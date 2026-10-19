@@ -16,13 +16,13 @@ from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from loom_notes import __version__
-from loom_notes.embed.base import ModelLoadError
+from loom_notes.embed.base import ModelError
 from loom_notes.ingest.extract import ExtractionError
 from loom_notes.ingest.paths import PathDeniedError
 from loom_notes.models import DocSummary, Document, Hit, IngestResult
 from loom_notes.service import MemoryService, NotFoundError, build_service
 from loom_notes.settings import Settings
-from loom_notes.store import ModelMismatchError, StoreUnavailableError
+from loom_notes.store import ModelMismatchError, StoreUnavailableError, store_error
 
 log = logging.getLogger("loom_notes")
 
@@ -98,14 +98,14 @@ def create_server(settings: Settings | None = None, *, fake: bool | None = None)
         """Recherche hybride (dense + sparse, reranking) dans la mémoire de l'utilisateur. À
         appeler avant de répondre sur ses projets, décisions ou notes. Renvoie des extraits courts
         avec doc_id, titre, projet et score ; utilise `get` pour lire un document en entier."""
-        return await _call(svc().search(query, project, tags, k))
+        return await _call(settings, svc().search(query, project, tags, k))
 
     @mcp.tool(annotations={"read_only_hint": True})
     async def get(
         doc_id: Annotated[str, Field(description="Identifiant renvoyé par search.")],
     ) -> Document:
         """Texte intégral d'un document de la mémoire, avec ses métadonnées."""
-        return await _call(svc().get(doc_id))
+        return await _call(settings, svc().get(doc_id))
 
     @mcp.tool(annotations={"read_only_hint": True})
     async def list_docs(
@@ -113,13 +113,13 @@ def create_server(settings: Settings | None = None, *, fake: bool | None = None)
         n: Annotated[int, Field(ge=1, le=50)] = 20,
     ) -> list[DocSummary]:
         """Derniers documents ajoutés, du plus récent au plus ancien (métadonnées, sans texte)."""
-        return await _call(svc().list_docs(project, n))
+        return await _call(settings, svc().list_docs(project, n))
 
     @mcp.tool(annotations={"read_only_hint": True})
     async def projects() -> dict[str, int]:
         """Projets présents dans la mémoire et nombre de documents pour chacun. Utile pour choisir
         le filtre `project` de search."""
-        return await _call(svc().projects())
+        return await _call(settings, svc().projects())
 
     # ---------- écriture : uniquement sur demande explicite ----------
 
@@ -133,7 +133,7 @@ def create_server(settings: Settings | None = None, *, fake: bool | None = None)
         project: Annotated[str, Field(description="Projet de rattachement.")],
         tags: Annotated[list[str] | None, Field(description="Tags optionnels.")] = None,
     ) -> IngestResult:
-        return await _call(svc().add_text(text, title, project, tags))
+        return await _call(settings, svc().add_text(text, title, project, tags))
 
     @mcp.tool(
         description="Télécharge une page web, en extrait le contenu principal et l'ajoute à la "
@@ -144,7 +144,7 @@ def create_server(settings: Settings | None = None, *, fake: bool | None = None)
         project: Annotated[str, Field(description="Projet de rattachement.")],
         tags: Annotated[list[str] | None, Field(description="Tags optionnels.")] = None,
     ) -> IngestResult:
-        return await _call(svc().add_url(url, project, tags))
+        return await _call(settings, svc().add_url(url, project, tags))
 
     @mcp.tool(
         description="Ajoute un fichier markdown local à la mémoire, découpé par titres. "
@@ -158,7 +158,7 @@ def create_server(settings: Settings | None = None, *, fake: bool | None = None)
         project: Annotated[str, Field(description="Projet de rattachement.")],
         tags: Annotated[list[str] | None, Field(description="Tags optionnels.")] = None,
     ) -> IngestResult:
-        return await _call(svc().add_file(path, project, tags))
+        return await _call(settings, svc().add_file(path, project, tags))
 
     @mcp.tool(
         description="Remplace le texte d'un document existant (même doc_id, titre, projet et tags "
@@ -169,7 +169,7 @@ def create_server(settings: Settings | None = None, *, fake: bool | None = None)
         doc_id: Annotated[str, Field(description="Identifiant du document.")],
         text: Annotated[str, Field(description="Nouveau contenu intégral.")],
     ) -> IngestResult:
-        return await _call(svc().update(doc_id, text))
+        return await _call(settings, svc().update(doc_id, text))
 
     @mcp.tool(
         description="Supprime définitivement un document et ses chunks. Renvoie le résumé de ce "
@@ -179,18 +179,23 @@ def create_server(settings: Settings | None = None, *, fake: bool | None = None)
     async def delete(
         doc_id: Annotated[str, Field(description="Identifiant du document.")],
     ) -> DocSummary:
-        return await _call(svc().delete(doc_id))
+        return await _call(settings, svc().delete(doc_id))
 
     return mcp
 
 
-async def _call[T](awaitable: Awaitable[T]) -> T:
-    """Convertit les erreurs métier, et l'échec de chargement d'un modèle, en ToolError lisibles
-    par Claude (sans trace)."""
+async def _call[T](settings: Settings, awaitable: Awaitable[T]) -> T:
+    """Convertit en ToolError lisibles par Claude (sans trace) les erreurs métier, l'échec d'un
+    modèle (chargement ou calcul) et celui de Qdrant pendant la requête."""
     try:
         return await awaitable
-    except (NotFoundError, ValueError, ExtractionError, PathDeniedError, ModelLoadError) as exc:
+    except (NotFoundError, ValueError, ExtractionError, PathDeniedError, ModelError) as exc:
         raise ToolError(str(exc)) from exc
+    except Exception as exc:
+        translated = store_error(exc, settings)
+        if translated is None:
+            raise
+        raise ToolError(str(translated)) from exc
 
 
 async def _warmup(service: MemoryService) -> None:
@@ -199,7 +204,7 @@ async def _warmup(service: MemoryService) -> None:
         log.info("modèles chargés")
     except asyncio.CancelledError:
         raise
-    except ModelLoadError as exc:
+    except ModelError as exc:
         # Une ligne : la cause y est, et la requête suivante rechargera le modèle.
         log.error("préchargement impossible : %s", exc)
     except Exception:

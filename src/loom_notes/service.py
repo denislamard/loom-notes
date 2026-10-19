@@ -133,9 +133,14 @@ class MemoryService:
         if not extracted.text:
             raise ValueError("contenu vide")
         if replace is None and source is not None:
+            # Une source (URL, fichier) est un seul document, quel que soit le projet : la
+            # redonner dans un autre projet l'y déplace.
             replace = await self._store.find_by_source(source)
         digest = content_hash(extracted.text)
-        same = await self._store.find_by_hash(digest)
+        # Déduplication par projet : un texte déjà présent dans un autre projet est ajouté
+        # au projet demandé (avant le 19/10, il était refusé comme doublon de l'autre projet,
+        # et la note manquait là où on l'attendait).
+        same = await self._store.find_by_hash(digest, project_clean)
         if same is not None and (replace is None or same.doc_id != replace.doc_id):
             return IngestResult(
                 doc_id=same.doc_id,

@@ -1,6 +1,8 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
+from qdrant_client import models as qm
 
 from loom_notes.service import MemoryService, NotFoundError, build_service
 from loom_notes.settings import Settings
@@ -36,12 +38,70 @@ async def test_add_and_search_by_project(service: MemoryService) -> None:
     assert await service.projects() == {"agent-pro": 1, "vaultlyra": 1}
 
 
-async def test_duplicate_is_detected(service: MemoryService) -> None:
+async def test_duplicate_is_detected_within_a_project(service: MemoryService) -> None:
     r1 = await service.add_text(PLOMBERIE, "Relance devis", "agent-pro")
-    r2 = await service.add_text(PLOMBERIE.upper(), "Autre titre", "autre")
+    r2 = await service.add_text(PLOMBERIE.upper(), "Autre titre", "agent-pro")
     assert r2.duplicate_of == r1.doc_id
     assert r2.chunks == 0
     assert await service.projects() == {"agent-pro": 1}
+
+
+async def test_the_same_text_can_live_in_two_projects(service: MemoryService) -> None:
+    """Avant le 19/10, le texte demandé dans `autre` était refusé comme doublon de la note
+    d'`agent-pro` : la réponse renvoyait le projet existant, et la note manquait dans `autre`."""
+    r1 = await service.add_text(PLOMBERIE, "Relance devis", "agent-pro")
+    r2 = await service.add_text(PLOMBERIE, "Relance devis", "autre")
+    assert r2.duplicate_of is None and r2.chunks > 0 and r2.doc_id != r1.doc_id
+    assert r2.project == "autre"
+    assert await service.projects() == {"agent-pro": 1, "autre": 1}
+    hits = await service.search("relance devis plombiers", project="autre")
+    assert [h.doc_id for h in hits] == [r2.doc_id]
+
+
+async def _chunk_indexes(service: MemoryService, doc_id: str) -> list[int]:
+    store: Any = service._store  # pyright: ignore[reportPrivateUsage]
+    points, _ = await store._c.scroll(
+        store._s.chunks_collection,
+        scroll_filter=qm.Filter(
+            must=[qm.FieldCondition(key="doc_id", match=qm.MatchValue(value=doc_id))]
+        ),
+        limit=100,
+        with_payload=True,
+    )
+    return sorted(int(p.payload["index"]) for p in points)
+
+
+async def test_a_shorter_rewrite_leaves_no_stale_chunk(service: MemoryService) -> None:
+    long_text = "\n\n".join(f"## Section {i}\n\n" + f"Paragraphe {i}. " * 150 for i in range(4))
+    r = await service.add_text(long_text, "Long", "p")
+    assert r.chunks > 1
+    assert await _chunk_indexes(service, r.doc_id) == list(range(r.chunks))
+    u = await service.update(r.doc_id, "Une seule phrase désormais.")
+    assert u.chunks == 1
+    assert await _chunk_indexes(service, r.doc_id) == [0]
+
+
+async def test_a_failed_document_write_keeps_the_note_searchable(
+    service: MemoryService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L'écriture du document vient en dernier : si elle échoue, les chunks sont déjà là.
+    Avant le 19/10, les chunks étaient supprimés d'abord, et la note devenait introuvable."""
+    r = await service.add_text(PLOMBERIE, "Relance devis", "agent-pro")
+    store: Any = service._store  # pyright: ignore[reportPrivateUsage]
+    upsert = store._c.upsert
+
+    async def failing(collection: str, **kwargs: Any) -> Any:
+        if collection == store._s.documents_collection:
+            raise RuntimeError("arrêt simulé")
+        return await upsert(collection, **kwargs)
+
+    monkeypatch.setattr(store._c, "upsert", failing)
+    with pytest.raises(RuntimeError, match="arrêt simulé"):
+        await service.update(r.doc_id, PLOMBERIE + "\n\nAjout : relance à J+14.")
+    monkeypatch.setattr(store._c, "upsert", upsert)
+    assert await _chunk_indexes(service, r.doc_id) != []
+    hits = await service.search("relance devis plombiers")
+    assert hits and hits[0].doc_id == r.doc_id
 
 
 async def test_update_keeps_id_and_reindexes(service: MemoryService) -> None:

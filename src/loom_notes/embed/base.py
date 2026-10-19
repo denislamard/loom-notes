@@ -43,10 +43,21 @@ class Reranker(Protocol):
     def score(self, query: str, passages: Sequence[str]) -> list[float]: ...
 
 
-class ModelLoadError(RuntimeError):
+class ModelError(RuntimeError):
+    """Un modèle n'a pas pu servir : message lisible, cause en une ligne."""
+
+
+class ModelLoadError(ModelError):
     """Un modèle n'a pas pu être chargé, ou n'a pas tourné une première fois.
 
     Rien n'est gardé en cache : l'appel suivant recharge le modèle.
+    """
+
+
+class ModelRunError(ModelError):
+    """Un modèle chargé a échoué sur un calcul (mémoire du GPU saturée, par exemple).
+
+    Le modèle est gardé : l'échec tient au calcul, pas au chargement.
     """
 
 
@@ -143,7 +154,13 @@ class LazyModel[T]:
         with self._lock:
             if self._model is None:
                 self._model = self._load()
-            return fn(self._model)
+            try:
+                return fn(self._model)
+            except Exception as exc:
+                raise ModelRunError(
+                    f"Calcul du modèle {self._name} impossible : {_first_line(exc)}. "
+                    "Réessayer ; si l'erreur persiste, redémarrer le serveur."
+                ) from exc
 
     def _load(self) -> T:
         try:

@@ -10,12 +10,12 @@ from typing import Annotated
 import typer
 from pydantic import BaseModel
 
-from loom_notes.embed.base import ModelLoadError
+from loom_notes.embed.base import ModelError
 from loom_notes.ingest.extract import ExtractionError
 from loom_notes.ingest.paths import PathDeniedError
 from loom_notes.service import MemoryService, NotFoundError, build_service
 from loom_notes.settings import Settings
-from loom_notes.store import ModelMismatchError, StoreUnavailableError
+from loom_notes.store import ModelMismatchError, StoreUnavailableError, store_error
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="loom-notes — mémoire locale.")
 
@@ -60,9 +60,15 @@ def _run[T](fn: Callable[[MemoryService], Awaitable[T]], *, check_model: bool = 
         StoreUnavailableError,
         ExtractionError,
         PathDeniedError,
-        ModelLoadError,
+        ModelError,
     ) as exc:
         typer.secho(f"erreur : {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from exc
+    except Exception as exc:
+        translated = store_error(exc, _settings())
+        if translated is None:
+            raise
+        typer.secho(f"erreur : {translated}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
 
 

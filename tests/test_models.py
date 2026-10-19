@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 from fastmcp import Client
 
-from loom_notes.embed.base import ModelLoadError, resolve_device, unsupported_gpu
+from loom_notes.embed.base import ModelLoadError, ModelRunError, resolve_device, unsupported_gpu
 from loom_notes.embed.bge_m3 import BgeM3Embedder
 from loom_notes.embed.reranker import BgeReranker
 from loom_notes.server import create_server
@@ -239,3 +239,25 @@ def test_a_supported_gpu_is_used_and_an_explicit_device_is_kept(
         assert resolve_device("cuda:1") == "cuda:1"
     finally:
         resolve_device.cache_clear()
+
+
+def test_a_failed_computation_keeps_the_model(
+    monkeypatch: pytest.MonkeyPatch, cpu_settings: Settings
+) -> None:
+    flag = _Flag()
+    _install(monkeypatch, flag)
+    embedder = BgeM3Embedder(cpu_settings)
+    embedder.embed_query("x")
+
+    def oom(*_: Any, **__: Any) -> Any:
+        raise RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB\nmore details")
+
+    model: Any = embedder._model._model  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(model, "encode", oom)
+    with pytest.raises(ModelRunError) as caught:
+        embedder.embed_query("x")
+    assert str(caught.value) == (
+        "Calcul du modèle BAAI/bge-m3 impossible : CUDA out of memory. Tried to allocate "
+        "2.00 GiB. Réessayer ; si l'erreur persiste, redémarrer le serveur."
+    )
+    assert flag.built == 1  # le modèle n'est pas jeté

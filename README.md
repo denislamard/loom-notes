@@ -28,7 +28,7 @@ Neuf tools, séparés en deux familles.
 
 Les quatre premiers sont déclarés en lecture seule au sens MCP. Les cinq autres portent, dans leur description et dans les instructions du serveur, la même consigne : n'appeler que sur demande explicite de l'utilisateur, jamais de sa propre initiative. C'est une consigne au modèle, pas un contrôle technique. Le seul contrôle technique porte sur `add_file`.
 
-Chaque tool d'écriture renvoie ce qu'il a réellement fait : identifiant, titre, projet, nombre de chunks écrits, et le cas échéant `duplicate_of` (contenu identique à un document existant, rien n'a été écrit) ou `updated` (un document existant a été remplacé).
+Chaque tool d'écriture renvoie ce qu'il a réellement fait : identifiant, titre, projet, nombre de chunks écrits, et le cas échéant `duplicate_of` (contenu identique à un document du même projet, rien n'a été écrit) ou `updated` (un document existant a été remplacé).
 
 `search` renvoie le chunk entier quand il fait moins de 1 000 caractères, ce qui couvre la plupart des notes et évite de couper un tableau au milieu. Au delà, un extrait de 300 caractères et `truncated: true`, signal pour appeler `get`.
 
@@ -40,7 +40,7 @@ Les trois entrées convergent vers le même pipeline. Le texte brut est pris tel
 
 Le texte est ensuite découpé par sections, en suivant les titres markdown. Une section trop longue est retaillée en paragraphes à environ 1 800 caractères avec un chevauchement de 180. Chaque chunk est préfixé par son chemin de titres (`Titre du document > Section > Sous-section`) avant d'être vectorisé : un paragraphe isolé perd son contexte, et c'est le détail qui fait le plus de différence en rappel sur des notes.
 
-Une empreinte SHA-256 du texte normalisé (casse, espaces) sert de déduplication. Un contenu déjà présent n'est pas réécrit. Une source déjà connue, URL ou chemin de fichier, dont le contenu a changé remplace le document existant au lieu d'en créer un second.
+Une empreinte SHA-256 du texte normalisé (casse, espaces) sert de déduplication, projet par projet. Un contenu déjà présent dans le projet n'est pas réécrit ; le même texte peut vivre dans deux projets. Une source déjà connue, URL ou chemin de fichier, est un seul document, quel que soit le projet : dont le contenu a changé, elle remplace le document existant au lieu d'en créer un second ; donnée dans un autre projet, elle l'y déplace.
 
 BGE-M3 produit en un seul passage un vecteur dense (1 024 dimensions) et un vecteur sparse lexical par chunk.
 
@@ -52,7 +52,7 @@ Le score renvoyé est celui du reranker. Au dessus de 0,8, le passage répond di
 
 ### Stockage
 
-Deux collections Qdrant. `documents` contient le texte intégral et les métadonnées, sans vecteur : c'est la source de vérité. `memory` contient les chunks vectorisés et se reconstruit entièrement depuis `documents` avec `loom-notes reindex`. Les identifiants de chunk sont dérivés de l'identifiant du document et de l'index du chunk, donc une réécriture ne laisse pas d'orphelin.
+Deux collections Qdrant. `documents` contient le texte intégral et les métadonnées, sans vecteur : c'est la source de vérité. `memory` contient les chunks vectorisés et se reconstruit entièrement depuis `documents` avec `loom-notes reindex`. Les identifiants de chunk sont dérivés de l'identifiant du document et de l'index du chunk. Une réécriture écrit d'abord les nouveaux chunks, qui écrasent les anciens, supprime ceux en trop, puis écrit le document : un arrêt en cours de route ne laisse jamais un document sans chunks, au pire de nouveaux chunks avec l'ancien texte intégral, ou des chunks sans document que `reindex` efface.
 
 Le nom du modèle d'embedding est enregistré dans `DATA_DIR/meta.json` au moment de l'indexation. Si la configuration demande un autre modèle, le serveur refuse de démarrer et demande un `reindex` : deux modèles ne se mélangent jamais en silence dans le même index.
 
@@ -264,6 +264,10 @@ Un changement de chunking, de modèle, de seuil ou de fusion se valide par un `e
 **« GPU … non pris en charge par ce torch … : modèles sur cpu » au démarrage.** La carte est vue par torch, mais la roue installée n'a pas de noyaux pour elle (carte trop ancienne pour la roue CUDA). En `auto`, les modèles passent sur le CPU : c'est plus lent, mais ça marche. Pour garder la carte, installer une roue torch adaptée ; pour faire taire l'avertissement, `LOOM_NOTES_DEVICE=cpu`. Avec `LOOM_NOTES_DEVICE=cuda` imposé sur une telle carte, le chargement échoue en « … impossible sur cuda : list index out of range » : FlagEmbedding attrape l'erreur CUDA, réduit son batch jusqu'à zéro et plante sur une liste vide.
 
 **« Chargement du modèle … impossible sur … ».** Le modèle n'a pas pu être chargé, ou n'a pas tourné une première fois ; la fin du message donne la cause. Rien n'est gardé : la requête suivante recharge, et un échec passager disparaît de lui-même. S'il persiste, vérifier `LOOM_NOTES_DEVICE` et l'installation de torch. Les chargements sont faits l'un après l'autre : deux chargements simultanés de FlagEmbedding (le préchargement et une première requête) cassaient le modèle (« Cannot copy out of meta tensor », « tqdm has no attribute '_lock' »), et le modèle cassé restait jusqu'au redémarrage.
+
+**« Calcul du modèle … impossible : … ».** Le modèle est chargé mais un calcul a échoué, typiquement la mémoire du GPU saturée par un autre programme. Le modèle est gardé ; réessayer, et redémarrer le serveur si l'erreur persiste.
+
+**« Qdrant injoignable … » ou « Qdrant a refusé la requête … » pendant une session.** Le serveur Qdrant s'est arrêté ou a répondu en erreur après le démarrage de loom-notes. Le tool renvoie ce message au lieu de l'exception du client ; `docker start qdrant` suffit, sans redémarrer loom-notes.
 
 ## Limites connues
 

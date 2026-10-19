@@ -13,7 +13,7 @@ from typing import Any
 from qdrant_client import AsyncQdrantClient
 from qdrant_client import models as qm
 from qdrant_client.conversions import common_types as ct
-from qdrant_client.http.exceptions import ResponseHandlingException
+from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
 from loom_notes.embed.base import Embedding
 from loom_notes.ids import point_id
@@ -29,6 +29,30 @@ class ModelMismatchError(Exception):
 
 class StoreUnavailableError(Exception):
     pass
+
+
+class StoreError(Exception):
+    """Qdrant a échoué pendant une requête, après un démarrage réussi : serveur arrêté ou
+    injoignable, réponse en erreur. Message lisible, sans trace."""
+
+
+def store_error(exc: Exception, settings: Settings) -> StoreError | None:
+    """Traduit une erreur du client Qdrant en `StoreError`, ou None si ce n'en est pas une."""
+    if isinstance(exc, ResponseHandlingException):
+        where = f" sur {settings.qdrant_url}" if settings.qdrant_url else ""
+        return StoreError(
+            f"Qdrant injoignable{where} ({_first_line(exc)}). "
+            "Le conteneur tourne-t-il ? `docker start qdrant`, puis réessayer."
+        )
+    if isinstance(exc, UnexpectedResponse):
+        return StoreError(f"Qdrant a refusé la requête : {_first_line(exc)}")
+    return None
+
+
+def _first_line(exc: BaseException) -> str:
+    text = str(exc).strip()
+    line = text.splitlines()[0].strip() if text else ""
+    return line or type(exc).__name__
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,37 +164,59 @@ class MemoryStore:
     async def upsert_document(
         self, doc: Document, chunks: Sequence[Chunk], embeddings: Sequence[Embedding]
     ) -> None:
+        """Écrit un document et ses chunks, sans jamais laisser un document sans chunks.
+
+        Ordre : les nouveaux chunks d'abord (leurs identifiants, dérivés du document et du
+        numéro, écrasent les anciens), puis les anciens chunks en trop, puis le document. Un
+        arrêt en cours de route laisse au pire les nouveaux chunks avec l'ancien texte intégral,
+        ou, pour un document neuf, des chunks sans document, que `reindex` efface. Avant, les
+        chunks étaient supprimés en premier : un arrêt laissait un document que `get` trouvait
+        et que `search` ne trouvait plus.
+        """
         if len(chunks) != len(embeddings):
             raise ValueError("chunks et embeddings de longueurs différentes")
-        await self.delete_chunks(doc.doc_id)
+        if chunks:
+            points = [
+                qm.PointStruct(
+                    id=point_id(doc.doc_id, chunk.index),
+                    vector={
+                        "dense": emb.dense,
+                        "sparse": qm.SparseVector(
+                            indices=emb.sparse.indices, values=emb.sparse.values
+                        ),
+                    },
+                    payload={
+                        "doc_id": doc.doc_id,
+                        "index": chunk.index,
+                        "heading_path": chunk.heading_path,
+                        "text": chunk.text,
+                        "title": doc.title,
+                        "project": doc.project,
+                        "tags": doc.tags,
+                        "source": doc.source,
+                        "added_at": doc.added_at,
+                    },
+                )
+                for chunk, emb in zip(chunks, embeddings, strict=True)
+            ]
+            await self._c.upsert(self._s.chunks_collection, points=points)
+        await self._delete_chunks_from(doc.doc_id, len(chunks))
         await self._c.upsert(
             self._s.documents_collection,
             points=[qm.PointStruct(id=doc.doc_id, vector={}, payload=doc.model_dump())],
         )
-        if not chunks:
-            return
-        points = [
-            qm.PointStruct(
-                id=point_id(doc.doc_id, chunk.index),
-                vector={
-                    "dense": emb.dense,
-                    "sparse": qm.SparseVector(indices=emb.sparse.indices, values=emb.sparse.values),
-                },
-                payload={
-                    "doc_id": doc.doc_id,
-                    "index": chunk.index,
-                    "heading_path": chunk.heading_path,
-                    "text": chunk.text,
-                    "title": doc.title,
-                    "project": doc.project,
-                    "tags": doc.tags,
-                    "source": doc.source,
-                    "added_at": doc.added_at,
-                },
-            )
-            for chunk, emb in zip(chunks, embeddings, strict=True)
-        ]
-        await self._c.upsert(self._s.chunks_collection, points=points)
+
+    async def _delete_chunks_from(self, doc_id: str, first: int) -> None:
+        """Supprime les chunks du document dont le numéro est au moins `first`."""
+        stale = qm.Filter(
+            must=[
+                qm.FieldCondition(key="doc_id", match=qm.MatchValue(value=doc_id)),
+                qm.FieldCondition(key="index", range=qm.Range(gte=first)),
+            ]
+        )
+        await self._c.delete(
+            self._s.chunks_collection, points_selector=qm.FilterSelector(filter=stale)
+        )
 
     async def delete_chunks(self, doc_id: str) -> None:
         await self._c.delete(
@@ -195,18 +241,23 @@ class MemoryStore:
             return None
         return Document.model_validate(points[0].payload) if points else None
 
-    async def find_by_hash(self, content_hash: str) -> Document | None:
-        return await self._find_one("content_hash", content_hash)
+    async def find_by_hash(self, content_hash: str, project: str) -> Document | None:
+        """Document du projet dont le contenu a cette empreinte : la déduplication est par
+        projet, un même texte peut vivre dans deux projets."""
+        return await self._find_one("content_hash", content_hash, project=project)
 
     async def find_by_source(self, source: str) -> Document | None:
         return await self._find_one("source", source)
 
-    async def _find_one(self, field: str, value: str) -> Document | None:
+    async def _find_one(
+        self, field: str, value: str, *, project: str | None = None
+    ) -> Document | None:
+        must: list[qm.Condition] = [qm.FieldCondition(key=field, match=qm.MatchValue(value=value))]
+        if project is not None:
+            must.append(qm.FieldCondition(key="project", match=qm.MatchValue(value=project)))
         points, _ = await self._c.scroll(
             self._s.documents_collection,
-            scroll_filter=qm.Filter(
-                must=[qm.FieldCondition(key=field, match=qm.MatchValue(value=value))]
-            ),
+            scroll_filter=qm.Filter(must=must),
             limit=1,
             with_payload=True,
         )
